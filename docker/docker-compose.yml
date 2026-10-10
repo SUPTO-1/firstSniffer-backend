@@ -1,0 +1,35 @@
+services:
+  mongodb:
+    image: mongo:8
+    container_name: firstsniffer-mongodb
+    restart: unless-stopped
+
+    ports:
+      - "27017:27017"
+
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: firstsniffer
+
+    volumes:
+      - mongo_data:/data/db
+
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    networks:
+      - firstsniffer-net
+
+volumes:
+  mongo_data:
+    name: firstsniffer_mongo_data
+
+networks:
+  firstsniffer-net:
+    name: firstsniffer-net
+    driver: bridge
