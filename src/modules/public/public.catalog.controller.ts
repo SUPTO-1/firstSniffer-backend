@@ -5,6 +5,7 @@ import { Season } from '../season/season.model';
 import { Occasion } from '../occasion/occasion.model';
 import { Weather } from '../weather/weather.model';
 import { Time } from '../timeofday/time.model';
+import { Atomizer } from '../atomizer/atomizer.model';
 import { sendResponse } from '../../utils/sendResponse';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { toPublicGenre } from '../genre/genre.service';
@@ -13,6 +14,7 @@ import { toPublicSeason } from '../season/season.service';
 import { toPublicOccasion } from '../occasion/occasion.service';
 import { toPublicWeather } from '../weather/weather.service';
 import { toPublicTime } from '../timeofday/time.service';
+import { toPublicAtomizer } from '../atomizer/atomizer.service';
 
 /**
  * Catalog endpoints for landing-page filter chips: genres, notes (top/middle/
@@ -63,3 +65,23 @@ export const listPublicTimes = asyncHandler(async (_req: Request, res: Response)
   const results = sortByName(rows.map((r) => toPublicTime(r as never)));
   return sendResponse(res, { message: 'Times fetched', data: results });
 });
+
+/**
+ * Public atomizer list — powers the "Choose Your Atomizer" section on the
+ * product details page. Only active atomizers with at least one size are
+ * returned; sorted by name so the section order is stable.
+ */
+export const listPublicAtomizers = asyncHandler(
+  async (_req: Request, res: Response) => {
+    const rows = await Atomizer.find({ isActive: true })
+      .sort({ name: 1, _id: 1 })
+      .lean()
+      .exec();
+    const results = rows
+      .map((r) => toPublicAtomizer(r as never))
+      .filter(
+        (a) => Array.isArray(a.sizes) && a.sizes.length > 0
+      );
+    return sendResponse(res, { message: 'Atomizers fetched', data: results });
+  }
+);

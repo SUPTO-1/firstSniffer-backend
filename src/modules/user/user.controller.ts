@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import * as service from './user.service';
+import * as orderService from '../order/order.service';
 import { sendResponse } from '../../utils/sendResponse';
 import { asyncHandler } from '../../utils/asyncHandler';
 import { ApiError } from '../../utils/ApiError';
@@ -47,4 +48,19 @@ export const removeAddress = asyncHandler(async (req: Request, res: Response) =>
     req.params.addressId
   );
   return sendResponse(res, { message: 'Address removed', data });
+});
+
+/**
+ * GET /api/users/me/orders
+ *
+ * Storefront "My orders" feed. Returns the authenticated customer's own
+ * orders, newest first. Pagination + sort params are forwarded; the
+ * `customer` filter is forcibly set to the caller's user id so customers
+ * can never see another shopper's orders.
+ */
+export const listMyOrders = asyncHandler(async (req: Request, res: Response) => {
+  const userId = getUserId(req);
+  const query: Record<string, unknown> = { ...req.query, customer: userId };
+  const data = await orderService.listOrders(query);
+  return sendResponse(res, { message: 'My orders fetched', data });
 });
