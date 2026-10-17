@@ -214,6 +214,7 @@ const WRITABLE_PRODUCT_KEYS = [
   'weathers',
   'times',
   'performance',
+  'images',
   'variants',
   'defaultAtomizer',
   'aliases',

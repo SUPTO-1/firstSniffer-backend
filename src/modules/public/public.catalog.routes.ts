@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import {
+  listPublicAtomizers,
   listPublicGenres,
   listPublicNotes,
   listPublicOccasions,
@@ -17,5 +18,6 @@ router.get('/seasons', listPublicSeasons);
 router.get('/occasions', listPublicOccasions);
 router.get('/weathers', listPublicWeathers);
 router.get('/times', listPublicTimes);
+router.get('/atomizers', listPublicAtomizers);
 
 export default router;

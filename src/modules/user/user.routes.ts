@@ -16,6 +16,10 @@ router.use(authRequired);
 
 router.get('/me', controller.getProfile);
 
+// Storefront: list the signed-in customer's own orders. `customer` is
+// forcibly set server-side so callers can never see another user's data.
+router.get('/me/orders', controller.listMyOrders);
+
 router.patch(
   '/me',
   validate(updateProfileSchema),

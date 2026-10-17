@@ -80,6 +80,7 @@ const updateFields = {
   weathers: z.array(objectId).optional(),
   times: z.array(objectId).optional(),
   performance: performanceSchema.optional(),
+  images: z.array(imageSchema).optional(),
   variants: z.array(variantSchema).min(1, 'At least one variant is required').optional(),
   defaultAtomizer: objectId.optional(),
   aliases: z.array(z.string().trim().max(120)).optional(),
