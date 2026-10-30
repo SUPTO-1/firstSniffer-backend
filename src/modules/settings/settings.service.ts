@@ -27,6 +27,20 @@ const WRITABLE_SETTINGS_KEYS = [
   'featuredCount',
   'newArrivalCount',
   'bestSellerCount',
+  'discountEnabled',
+  'discountCtaHref',
+  'discountEyebrow',
+  'discountHeadline',
+  'discountSubheadline',
+  'discountCtaLabel',
+  'heroEyebrow',
+  'heroHeadline',
+  'heroSubheadline',
+  'heroCtaLabel',
+  'heroCtaHref',
+  'heroPriceLabel',
+  'heroPriceValue',
+  'footerBlurb',
 ] as const;
 
 /* ------------------------------------------------------------------
@@ -56,6 +70,43 @@ export function toPublicSettings(doc: unknown): PublicSettings {
   const featuredCount = (raw.featuredCount as number) ?? 8;
   const newArrivalCount = (raw.newArrivalCount as number) ?? 8;
   const bestSellerCount = (raw.bestSellerCount as number) ?? 8;
+  const heroImage = toMediaRef(raw.heroImage);
+  const discountImage = toMediaRef(raw.discountImage);
+  const discountEnabled = (raw.discountEnabled as boolean) ?? true;
+  const discountCtaHref =
+    (raw.discountCtaHref as string)?.trim() || '/';
+
+  /* ----- Landing-page copy (CMS-managed). Trimmed with hard fallbacks so a
+   * blank string in the DB can never render an empty hero. ----- */
+  const heroEyebrow =
+    (raw.heroEyebrow as string)?.trim() || 'Authentic Luxury Decants';
+  const heroHeadline =
+    (raw.heroHeadline as string)?.trim() || 'The Art of Scent, Decanted.';
+  const heroSubheadline =
+    (raw.heroSubheadline as string)?.trim() ||
+    'Experience the world’s finest fragrances in considered sizes. Authentic decants, meticulously sourced and beautifully presented.';
+  const heroCtaLabel =
+    (raw.heroCtaLabel as string)?.trim() || 'Shop the Collection';
+  const heroCtaHref = (raw.heroCtaHref as string)?.trim() || '/';
+  const heroPriceLabel =
+    (raw.heroPriceLabel as string)?.trim() || 'Decants from';
+  const heroPriceValue = (raw.heroPriceValue as string)?.trim() || '৳2,200';
+
+  const discountEyebrow =
+    (raw.discountEyebrow as string)?.trim() || 'Limited Time Only';
+  const discountHeadline =
+    (raw.discountHeadline as string)?.trim() ||
+    'Up to 20% Off Selected Decants';
+  const discountSubheadline =
+    (raw.discountSubheadline as string)?.trim() ||
+    'Discover premium fragrances at a rare reduction. Same authenticity. More to explore.';
+  const discountCtaLabel =
+    (raw.discountCtaLabel as string)?.trim() || 'Shop the Offer';
+
+  const footerBlurb =
+    (raw.footerBlurb as string)?.trim() ||
+    'Authentic luxury perfume decants. Bangladesh’s favourite destination for genuine, hand-filled fragrances in considered sizes.';
+
   return {
     id: raw._id ? String(raw._id) : 'global',
     storeName: (raw.storeName as string) ?? 'First Sniffer',
@@ -85,6 +136,32 @@ export function toPublicSettings(doc: unknown): PublicSettings {
       featuredCount,
       newArrivalCount,
       bestSellerCount,
+      heroImage,
+      discountImage,
+      discountEnabled,
+      discountCtaHref,
+    },
+    hero: {
+      image: heroImage,
+      eyebrow: heroEyebrow,
+      headline: heroHeadline,
+      subheadline: heroSubheadline,
+      ctaLabel: heroCtaLabel,
+      ctaHref: heroCtaHref,
+      priceLabel: heroPriceLabel,
+      priceValue: heroPriceValue,
+    },
+    discount: {
+      image: discountImage,
+      enabled: discountEnabled,
+      ctaHref: discountCtaHref,
+      eyebrow: discountEyebrow,
+      headline: discountHeadline,
+      subheadline: discountSubheadline,
+      ctaLabel: discountCtaLabel,
+    },
+    footer: {
+      blurb: footerBlurb,
     },
     /* flat aliases (back-compat) */
     insideCtgCharge,
@@ -97,6 +174,22 @@ export function toPublicSettings(doc: unknown): PublicSettings {
     featuredCount,
     newArrivalCount,
     bestSellerCount,
+    heroImage,
+    discountImage,
+    discountEnabled,
+    discountCtaHref,
+    heroEyebrow,
+    heroHeadline,
+    heroSubheadline,
+    heroCtaLabel,
+    heroCtaHref,
+    heroPriceLabel,
+    heroPriceValue,
+    discountEyebrow,
+    discountHeadline,
+    discountSubheadline,
+    discountCtaLabel,
+    footerBlurb,
     updatedBy: raw.updatedBy ? String(raw.updatedBy) : undefined,
     updatedAt: raw.updatedAt?.toISOString?.(),
   };
@@ -155,6 +248,32 @@ export async function updateSettings(
       url: incoming.url ?? (existing.storeFavicon as IMediaRef)?.url ?? '',
       fileId:
         incoming.fileId ?? (existing.storeFavicon as IMediaRef)?.fileId ?? '',
+    };
+    if (oldFileId && incoming.fileId && oldFileId !== incoming.fileId) {
+      void deleteImageKitFile(oldFileId);
+    }
+  }
+
+  /* ----- Homepage banner image refs ----- */
+  if (input.heroImage && typeof input.heroImage === 'object') {
+    const incoming = input.heroImage as IMediaRef;
+    const oldFileId = (existing.heroImage as IMediaRef | undefined)?.fileId;
+    set.heroImage = {
+      url: incoming.url ?? (existing.heroImage as IMediaRef)?.url ?? '',
+      fileId:
+        incoming.fileId ?? (existing.heroImage as IMediaRef)?.fileId ?? '',
+    };
+    if (oldFileId && incoming.fileId && oldFileId !== incoming.fileId) {
+      void deleteImageKitFile(oldFileId);
+    }
+  }
+  if (input.discountImage && typeof input.discountImage === 'object') {
+    const incoming = input.discountImage as IMediaRef;
+    const oldFileId = (existing.discountImage as IMediaRef | undefined)?.fileId;
+    set.discountImage = {
+      url: incoming.url ?? (existing.discountImage as IMediaRef)?.url ?? '',
+      fileId:
+        incoming.fileId ?? (existing.discountImage as IMediaRef)?.fileId ?? '',
     };
     if (oldFileId && incoming.fileId && oldFileId !== incoming.fileId) {
       void deleteImageKitFile(oldFileId);

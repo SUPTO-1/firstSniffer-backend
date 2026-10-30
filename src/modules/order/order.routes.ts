@@ -7,8 +7,11 @@ import {
   cancelOrderSchema,
   createOrderSchema,
   calculateOrderSchema,
+  invoiceParamsSchema,
   listOrderQuerySchema,
   orderIdParamSchema,
+  orderPaymentBodySchema,
+  orderReviewBodySchema,
   updateOrderPaymentStatusSchema,
   updateOrderStatusSchema,
 } from './order.validation';
@@ -93,6 +96,44 @@ router.post(
   validate(orderIdParamSchema, 'params'),
   validate(cancelOrderSchema),
   controller.cancelOrder
+);
+
+// Manual reviews
+router.get(
+  '/:id/reviews',
+  adminOnly,
+  validate(orderIdParamSchema, 'params'),
+  controller.listOrderReviews
+);
+router.post(
+  '/:id/reviews',
+  adminOnly,
+  validate(orderIdParamSchema, 'params'),
+  validate(orderReviewBodySchema),
+  controller.createOrderReview
+);
+
+// Manual payments
+router.get(
+  '/:id/payments',
+  adminOnly,
+  validate(orderIdParamSchema, 'params'),
+  controller.listOrderPayments
+);
+router.post(
+  '/:id/payments',
+  adminOnly,
+  validate(orderIdParamSchema, 'params'),
+  validate(orderPaymentBodySchema),
+  controller.createOrderPayment
+);
+
+// Invoice PDF (admin view — includes payments log)
+router.get(
+  '/:id/invoice',
+  adminOnly,
+  validate(invoiceParamsSchema, 'params'),
+  controller.streamAdminInvoice
 );
 
 export default router;

@@ -39,6 +39,7 @@ export type UserDoc = IUser & Document & { _id: unknown };
 export interface UpdateProfileInput {
   name?: string;
   nickname?: string | null;
+  email?: string | null;
   phone?: string | null;
 }
 

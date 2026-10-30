@@ -43,6 +43,28 @@ export interface ISettings {
   newArrivalCount: number;
   bestSellerCount: number;
 
+  /* Homepage banner (hero) */
+  heroImage: IMediaRef;
+  heroEyebrow: string;
+  heroHeadline: string;
+  heroSubheadline: string;
+  heroCtaLabel: string;
+  heroCtaHref: string;
+  heroPriceLabel: string;
+  heroPriceValue: string;
+
+  /* Homepage discount banner */
+  discountImage: IMediaRef;
+  discountEnabled: boolean;
+  discountCtaHref: string;
+  discountEyebrow: string;
+  discountHeadline: string;
+  discountSubheadline: string;
+  discountCtaLabel: string;
+
+  /* Footer content */
+  footerBlurb: string;
+
   /* Audit */
   updatedBy?: unknown;
   updatedAt?: Date;
@@ -101,6 +123,41 @@ export interface PublicSettings {
     featuredCount: number;
     newArrivalCount: number;
     bestSellerCount: number;
+    heroImage: IMediaRef;
+    discountImage: IMediaRef;
+    discountEnabled: boolean;
+    discountCtaHref: string;
+  };
+
+  /**
+   * Landing-page hero copy — nested for convenience. Mirrored flat below for
+   * back-compat with consumers that read the scalar fields directly.
+   */
+  hero: {
+    image: IMediaRef;
+    eyebrow: string;
+    headline: string;
+    subheadline: string;
+    ctaLabel: string;
+    ctaHref: string;
+    priceLabel: string;
+    priceValue: string;
+  };
+
+  /** Landing-page discount banner copy — nested. */
+  discount: {
+    image: IMediaRef;
+    enabled: boolean;
+    ctaHref: string;
+    eyebrow: string;
+    headline: string;
+    subheadline: string;
+    ctaLabel: string;
+  };
+
+  /** Footer copy — nested. */
+  footer: {
+    blurb: string;
   };
 
   /* ---- Flat aliases (back-compat + convenience) ---- */
@@ -114,6 +171,26 @@ export interface PublicSettings {
   featuredCount: number;
   newArrivalCount: number;
   bestSellerCount: number;
+
+  /* Homepage banners — flat aliases */
+  heroImage: IMediaRef;
+  discountImage: IMediaRef;
+  discountEnabled: boolean;
+  discountCtaHref: string;
+
+  /* Hero / discount / footer copy — flat aliases */
+  heroEyebrow: string;
+  heroHeadline: string;
+  heroSubheadline: string;
+  heroCtaLabel: string;
+  heroCtaHref: string;
+  heroPriceLabel: string;
+  heroPriceValue: string;
+  discountEyebrow: string;
+  discountHeadline: string;
+  discountSubheadline: string;
+  discountCtaLabel: string;
+  footerBlurb: string;
 
   updatedBy?: string;
   updatedAt?: string;

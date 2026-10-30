@@ -1,9 +1,21 @@
 import type { Request, Response } from 'express';
+import { Types } from 'mongoose';
 import { Product } from '../product/product.model';
+import { Inventory } from '../inventory/inventory.model';
 import { sendResponse, sendError } from '../../utils/sendResponse';
 import { asyncHandler } from '../../utils/asyncHandler';
-import { toPublicProduct } from '../product/product.service';
 import type { PublicProduct } from '../product/product.interface';
+import {
+  buildPublicProductFilter,
+  wantsInStock,
+  withInStockIds,
+  resolvePublicSort,
+  PUBLIC_PRODUCT_SORTS,
+  variantPriceBounds,
+} from './publicProductFilter';
+import {
+  applyCrossCollectionSearch,
+} from './publicSearchResolution';
 
 /**
  * Filter shape for the public storefront listing — only the boolean flags
@@ -21,12 +33,23 @@ type PublicProductFlag = (typeof PUBLIC_PRODUCT_FLAGS)[number];
 
 interface PublicProductQuery {
   flag?: string;
-  brand?: string;
-  genre?: string;
   search?: string;
+  sort?: string;
   limit?: number;
   page?: number;
-  sort?: string;
+  brands?: string;
+  genres?: string;
+  seasons?: string;
+  occasions?: string;
+  weathers?: string;
+  times?: string;
+  'notes.top'?: string;
+  'notes.middle'?: string;
+  'notes.base'?: string;
+  gender?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  inStock?: string;
 }
 
 const POPULATE = [
@@ -55,66 +78,144 @@ function parsePositiveInt(raw: unknown, fallback: number, max = 100): number {
 }
 
 /**
+ * Attach the derived `priceRange` the storefront needs. `variants[]` may be
+ * missing on a lean row, so we compute `[lowest, highest]` defensively.
+ */
+function withDerived<T>(doc: T): T & { priceRange: { min: number | null; max: number | null } } {
+  const bounds = variantPriceBounds(
+    (doc as unknown as Record<string, unknown>).variants
+  );
+  (doc as unknown as Record<string, unknown>).priceRange = {
+    min: bounds.min,
+    max: bounds.max,
+  };
+  return doc as T & { priceRange: { min: number | null; max: number | null } };
+}
+
+/**
+ * Product ids with at least one inventory row that still has sellable stock
+ * (`remainingMl > 0`). Returned as raw ids so the caller can `$in` them.
+ *
+ * A product qualifies when ANY of its inventory rows is in stock — the
+ * storefront only needs "can this be bought right now".
+ */
+async function inStockProductIds(): Promise<string[]> {
+  const rows = await Inventory.find({ remainingMl: { $gt: 0 } })
+    .select('product')
+    .limit(20_000)
+    .lean()
+    .exec();
+  const seen = new Set<string>();
+  for (const r of rows) {
+    const p = (r as { product?: unknown }).product;
+    const id =
+      p && typeof p === 'object' && '_id' in (p as Record<string, unknown>)
+        ? String((p as { _id: unknown })._id)
+        : String(p ?? '');
+    if (id) seen.add(id);
+  }
+  return Array.from(seen);
+}
+
+/**
+ * Fold cross-collection search hits into the product filter.
+ *
+ * Delegates to `applyCrossCollectionSearch` in publicSearchResolution, which
+ * resolves the taxonomy ids PER TOKEN — essential for "AND across tokens":
+ * `?search=oud wood` must require an oud somewhere AND wood somewhere, not
+ * accept any product matching either term.
+ */
+async function applySearchToFilter(
+  filter: Record<string, unknown>,
+  searchTerm: string
+): Promise<void> {
+  const and = (filter.$and as Record<string, unknown>[] | undefined) ?? [];
+  filter.$and = and;
+  await applyCrossCollectionSearch(and, searchTerm);
+}
+
+/**
  * GET /api/public/products
  *
- * Public-facing storefront listing. Always filters `isActive: true` and
- * `deletedAt: null`. Optional flag filter narrows to one merchandising
- * collection (e.g. `?flag=bestSelling` for the homepage's Best Sellers
- * section). Pagination is supported but capped at 100 rows.
+ * Public storefront listing with full faceted search.
+ *
+ * Semantics (enforced in the DB query, not just the UI):
+ *   - OR within a category  → `?brands=a,b` matches either
+ *   - AND across categories → `?brands=a,b&genres=x` must match both
+ *   - notes are OR within their own layer — selecting 3 top notes does NOT
+ *     require a product to carry all three
+ *   - an empty / absent facet contributes no clause at all
+ *
+ * Query params: `search`, `brands`, `genres`, `seasons`, `occasions`,
+ * `weathers`, `times`, `notes.top`, `notes.middle`, `notes.base` (all CSV),
+ * `gender`, `minPrice`, `maxPrice`, `inStock`, `flag`, `sort`, `page`, `limit`.
  */
 export const listPublicProducts = asyncHandler(
   async (req: Request, res: Response) => {
     const q = req.query as PublicProductQuery;
 
-    const filter: Record<string, unknown> = {
-      isActive: true,
-      deletedAt: null,
-    };
+    const built = buildPublicProductFilter({
+      search: q.search,
+      facets: {
+        brands: q.brands,
+        genres: q.genres,
+        seasons: q.seasons,
+        occasions: q.occasions,
+        weathers: q.weathers,
+        times: q.times,
+        'notes.top': q['notes.top'],
+        'notes.middle': q['notes.middle'],
+        'notes.base': q['notes.base'],
+      },
+      gender: q.gender,
+      minPrice: q.minPrice,
+      maxPrice: q.maxPrice,
+    });
+
+    // Cross-collection search (brand/note/taxonomy names) — needs extra queries
+    // so it runs after the base filter is assembled.
+    if (built.searchTerm) {
+      await applySearchToFilter(
+        built.filter as Record<string, unknown>,
+        built.searchTerm
+      );
+    }
+
+    // Availability — resolved to a product-id set so the main query stays a
+    // simple indexed `_id $in`.
+    if (wantsInStock(q.inStock)) {
+      withInStockIds(built, await inStockProductIds());
+    }
+
+    const filter = built.filter;
 
     const flag = pickPublicFlag(q.flag);
-    if (flag) filter[flag] = true;
-
-    if (q.brand && /^[a-f\d]{24}$/i.test(String(q.brand))) {
-      filter.brand = String(q.brand);
+    if (flag) {
+      const and = ((filter as Record<string, unknown>).$and as
+        | Record<string, unknown>[]
+        | undefined) ?? [];
+      and.push({ [flag]: true });
+      (filter as Record<string, unknown>).$and = and;
     }
-    if (q.genre && /^[a-f\d]{24}$/i.test(String(q.genre))) {
-      filter.genres = { $in: [String(q.genre)] };
-    }
-
-    let searchFilter: Record<string, unknown> = {};
-    if (typeof q.search === 'string' && q.search.trim().length > 0) {
-      const re = new RegExp(q.search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-      searchFilter = { $or: [{ name: re }, { slug: re }, { aliases: { $in: [re] } }] };
-    }
-
-    const finalFilter = { ...filter, ...searchFilter };
 
     const page = parsePositiveInt(q.page, 1);
-    const limit = parsePositiveInt(q.limit, 12, 100);
+    const limit = parsePositiveInt(q.limit, 12, 60);
     const skip = (page - 1) * limit;
 
-    // Default sort: -createdAt; flag-based sections use their natural
-    // ordering (most-recently-flagged first).
-    let sort: Record<string, 1 | -1> = { createdAt: -1, _id: -1 };
-    if (flag === 'bestSelling') sort = { bestSelling: -1, createdAt: -1, _id: -1 };
-    if (flag === 'topRated') sort = { averageRating: -1, reviewCount: -1, _id: -1 };
-    if (flag === 'newArrival') sort = { newArrival: -1, createdAt: -1, _id: -1 };
-    if (flag === 'featured') sort = { featured: -1, createdAt: -1, _id: -1 };
-    if (q.sort === '-createdAt') sort = { createdAt: -1, _id: -1 };
-    if (q.sort === 'createdAt') sort = { createdAt: 1, _id: 1 };
-    if (q.sort === 'name') sort = { name: 1, _id: 1 };
-    if (q.sort === '-name') sort = { name: -1, _id: -1 };
-    if (q.sort === 'price') sort = { 'variants.0.price': 1, _id: 1 };
+    // Default sort: newest. Flag-based sections use their natural ordering.
+    let sort = resolvePublicSort(q.sort) ?? PUBLIC_PRODUCT_SORTS.newest;
+    if (!q.sort && flag === 'bestSelling') sort = PUBLIC_PRODUCT_SORTS.popular;
+    if (!q.sort && flag === 'topRated') sort = PUBLIC_PRODUCT_SORTS.rating;
 
     const [raw, total] = await Promise.all([
-      Product.find(finalFilter)
+      Product.find(filter)
         .populate(POPULATE)
         .sort(sort)
         .skip(skip)
         .limit(limit)
         .lean()
         .exec(),
-      Product.countDocuments(finalFilter).exec(),
+      Product.countDocuments(filter).exec(),
     ]);
 
     const results = raw.map((d) => {
@@ -122,8 +223,8 @@ export const listPublicProducts = asyncHandler(
       if (doc._id && doc.id === undefined) doc.id = String(doc._id);
       delete doc._id;
       delete doc.__v;
-      return toPublicProduct(doc);
-    });
+      return withDerived(doc);
+    }) as unknown as Array<PublicProduct & { priceRange: { min: number | null; max: number | null } }>;
 
     return sendResponse(res, {
       message: 'Products fetched',
@@ -177,7 +278,13 @@ export const getPublicProductBySlugOrId = asyncHandler(
     if (!doc) {
       return sendError(res, 404, 'Product not found');
     }
-    const data: PublicProduct = toPublicProduct(doc);
+    const leanDoc = doc.toObject() as unknown as Record<string, unknown>;
+    if (leanDoc._id && leanDoc.id === undefined) {
+      leanDoc.id = String(leanDoc._id);
+    }
+    delete leanDoc._id;
+    delete leanDoc.__v;
+    const data = withDerived(leanDoc) as unknown as PublicProduct;
     return sendResponse(res, { message: 'Product fetched', data });
   }
 );

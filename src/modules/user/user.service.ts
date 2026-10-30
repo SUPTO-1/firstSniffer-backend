@@ -58,6 +58,23 @@ export async function updateProfile(
   if (input.nickname !== undefined) doc.nickname = input.nickname;
   if (input.phone !== undefined) doc.phone = input.phone;
 
+  if (input.email !== undefined) {
+    const next = (input.email ?? '').trim().toLowerCase();
+    const current = (doc.email ?? '').trim().toLowerCase();
+    if (next !== current) {
+      if (next) {
+        // Reject emails already taken by another user. The unique-sparse
+        // index would also catch this, but we want a friendly error
+        // message instead of a raw E11000.
+        const clash = await User.findOne({ email: next }).select('_id').lean();
+        if (clash && String(clash._id) !== String(doc._id)) {
+          throw ApiError.conflict('That email is already in use');
+        }
+      }
+      doc.email = next || null;
+    }
+  }
+
   await doc.save();
   return toPublicUser(doc);
 }
