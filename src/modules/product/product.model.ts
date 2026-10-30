@@ -174,6 +174,32 @@ ProductSchema.pre('validate', function () {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Faceted-search indexes.
+//
+// The storefront filters with OR-within / AND-across across nine facet paths
+// plus a price range on `variants.price` and an optional `_id $in` for stock.
+// Every one of those paths is an equality / `$in` match, so a single-field
+// index per path lets the planner intersect them. Text search is a leading-
+// wildcard regex and can't use a B-tree, so `name` gets a case-insensitive
+// collation index instead (helps exact-prefix + equality lookups).
+// ---------------------------------------------------------------------------
+ProductSchema.index({ name: 1, _id: 1 });
+ProductSchema.index({ seasons: 1 });
+ProductSchema.index({ occasions: 1 });
+ProductSchema.index({ weathers: 1 });
+ProductSchema.index({ times: 1 });
+ProductSchema.index({ 'notes.top': 1 });
+ProductSchema.index({ 'notes.middle': 1 });
+ProductSchema.index({ 'notes.base': 1 });
+ProductSchema.index({ aliases: 1 });
+ProductSchema.index({ 'variants.price': 1 });
+ProductSchema.index({ gender: 1 });
+// Covers the default storefront listing (active, undeleted, newest first).
+ProductSchema.index({ isActive: 1, deletedAt: 1, createdAt: -1 });
+// Supports the availability path and the admin product-id lookups.
+ProductSchema.index({ brand: 1, isActive: 1, deletedAt: 1 });
+
 // Cascade: when a Product is renamed, the denormalised `productName` on
 // any Inventory rows must follow — otherwise search by product name breaks.
 // Best-effort, fire-and-forget so a transient Mongo error doesn't block the save.

@@ -98,6 +98,9 @@ const OrderSchema = new Schema<OrderDoc>(
 
     shippingCharge: { type: Number, required: true, min: 0, default: 0 },
     total: { type: Number, required: true, min: 0 },
+    /** Running sum of all `OrderPayment` records. Updated by the
+     *  record-payment endpoint and by the manual flip to `'paid'`. */
+    paidAmount: { type: Number, required: true, min: 0, default: 0 },
 
     paymentMethod: {
       type: Schema.Types.ObjectId,

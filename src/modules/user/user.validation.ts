@@ -19,6 +19,14 @@ export const updateProfileSchema = z
       .max(40)
       .nullable()
       .optional(),
+    email: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .email('Invalid email address')
+      .max(120, 'Email is too long')
+      .nullable()
+      .optional(),
     phone: z
       .string()
       .trim()

@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
-import { AnyZodObject, ZodError } from 'zod';
+import { ZodError, type ZodTypeAny } from 'zod';
 import { ApiError } from '../utils/ApiError';
 
 type Source = 'body' | 'query' | 'params';
@@ -9,11 +9,15 @@ type Source = 'body' | 'query' | 'params';
  * a Zod schema. On success the parsed value replaces the original request
  * data (so downstream handlers receive a typed object). On failure throws a
  * 400 ApiError carrying structured field-level errors.
+ *
+ * Accepts any `ZodTypeAny`, not just plain objects, so schemas wrapped in
+ * `.refine()` / `.superRefine()` / `.transform()` (which resolve to
+ * `ZodEffects`) can be used directly instead of being unwrapped by hand.
  */
-export function validate(schema: AnyZodObject, source: Source = 'body') {
+export function validate(schema: ZodTypeAny, source: Source = 'body') {
   return async (req: Request, _res: Response, next: NextFunction) => {
     try {
-      const parsed = await schema.parseAsync(req[source]);
+      const parsed: unknown = await schema.parseAsync(req[source]);
       // Replace the source with the parsed/coerced result so handlers
       // can rely on defaults being applied (e.g. role='customer').
       // We use Object.assign to keep prototype + add properties.

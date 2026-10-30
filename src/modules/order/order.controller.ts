@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import * as service from './order.service';
+import { streamInvoice } from './invoice.service';
 import { sendResponse } from '../../utils/sendResponse';
 import { asyncHandler } from '../../utils/asyncHandler';
 
@@ -59,3 +60,70 @@ export const updateDetails = asyncHandler(async (req: Request, res: Response) =>
   const data = await service.updateOrderDetails(req.params.id, req.body);
   return sendResponse(res, { message: 'Order updated', data });
 });
+
+/* ----- Manual reviews ----- */
+export const listOrderReviews = asyncHandler(
+  async (req: Request, res: Response) => {
+    const data = await service.listOrderReviews(req.params.id);
+    return sendResponse(res, { message: 'Reviews fetched', data });
+  }
+);
+
+export const createOrderReview = asyncHandler(
+  async (req: Request, res: Response) => {
+    const actorId =
+      (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const data = await service.createOrderReview(
+      req.params.id,
+      req.body,
+      actorId
+    );
+    return sendResponse(res, {
+      statusCode: 201,
+      message: 'Review added',
+      data,
+    });
+  }
+);
+
+/* ----- Manual payments ----- */
+export const listOrderPayments = asyncHandler(
+  async (req: Request, res: Response) => {
+    const data = await service.listOrderPayments(req.params.id);
+    return sendResponse(res, { message: 'Payments fetched', data });
+  }
+);
+
+export const createOrderPayment = asyncHandler(
+  async (req: Request, res: Response) => {
+    const actorId =
+      (req as unknown as { user?: { id?: string } }).user?.id ?? '';
+    const data = await service.recordOrderPayment(
+      req.params.id,
+      req.body,
+      actorId
+    );
+    return sendResponse(res, {
+      statusCode: 201,
+      message: 'Payment recorded',
+      data,
+    });
+  }
+);
+
+/* ----- Invoice (admin) ----- */
+export const streamAdminInvoice = asyncHandler(
+  async (req: Request, res: Response) => {
+    const order = await service.getOrderDocById(req.params.id);
+    const payments = await service.listOrderPaymentsForOrderDoc(
+      String(order._id)
+    );
+    await streamInvoice(
+      res,
+      // The `OrderDoc` from getOrderDocById has populated customer +
+      // paymentMethod; streamInvoice accepts the populated shape.
+      order as unknown as Parameters<typeof streamInvoice>[1],
+      { includePaymentsLog: true, payments }
+    );
+  }
+);

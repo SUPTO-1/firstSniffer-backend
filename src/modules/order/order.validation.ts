@@ -106,3 +106,54 @@ export const updateOrderPaymentStatusSchema = z
 export const cancelOrderSchema = z
   .object({ reason: z.string().trim().max(500).optional() })
   .strict();
+
+/* ----- Manual review (admin only) -----
+ * At least one of image or comment is required. Zod's superRefine runs
+ * after object validation so we can return a friendly top-level error.
+ */
+export const orderReviewBodySchema = z
+  .object({
+    image: z
+      .object({
+        url: z.string().url('Image URL is invalid'),
+        fileId: z.string().trim().min(1, 'Image fileId is required'),
+      })
+      .optional(),
+    comment: z.string().trim().min(1).max(2000).optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (!val.image && !val.comment) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'At least one of image or comment is required',
+        path: [],
+      });
+    }
+  });
+
+/* ----- Manual payment (admin only) ----- */
+export const orderPaymentBodySchema = z
+  .object({
+    amount: z
+      .number()
+      .int('Amount must be a whole number')
+      .positive('Amount must be greater than zero'),
+    note: z.string().trim().max(500).optional(),
+  })
+  .strict();
+
+/* ----- Invoice params (admin / public) ----- */
+export const invoiceParamsSchema = z
+  .object({ id: z.string().regex(/^[a-f0-9]{24}$/i, 'Invalid order id') })
+  .strict();
+
+export const invoicePublicParamsSchema = z
+  .object({
+    orderNumber: z
+      .string()
+      .trim()
+      .min(3, 'Order number is required')
+      .max(64, 'Order number is too long')
+      .regex(/^[A-Z0-9-]+$/i, 'Order number must contain only letters, numbers and dashes'),
+  })
+  .strict();

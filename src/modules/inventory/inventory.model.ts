@@ -92,6 +92,12 @@ const InventorySchema = new Schema<InventoryDoc>(
 // adjust the existing row instead.
 InventorySchema.index({ product: 1, bottleSize: 1 }, { unique: true });
 
+// Availability lookup: the storefront's `?inStock=true` filter resolves to
+// "every product with at least one row where remainingMl > 0". This
+// compound index turns that from a collection scan into an index range scan
+// and keeps the projected `product` covered by the index.
+InventorySchema.index({ remainingMl: 1, product: 1 });
+
 export const Inventory: Model<InventoryDoc> =
   (mongoose.models.Inventory as Model<InventoryDoc>) ||
   mongoose.model<InventoryDoc>('Inventory', InventorySchema);

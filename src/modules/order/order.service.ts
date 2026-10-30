@@ -1,5 +1,9 @@
 import { ApiError } from '../../utils/ApiError';
 import { Order } from './order.model';
+import { OrderReview } from './orderReview.model';
+import { OrderPayment } from './orderPayment.model';
+import type { PublicOrderReview } from './orderReview.interface';
+import type { PublicOrderPayment } from './orderPayment.interface';
 import { Combo } from '../combo/combo.model';
 import { Coupon } from '../coupon/coupon.model';
 import { Inventory } from '../inventory/inventory.model';
@@ -23,6 +27,14 @@ import {
   type PublicOrderCombo,
   type PublicOrderItem,
 } from './order.interface';
+import type {
+  IOrderReview,
+  OrderReviewDoc,
+} from './orderReview.interface';
+import type {
+  IOrderPayment,
+  OrderPaymentDoc,
+} from './orderPayment.interface';
 import type { ShippingZoneId } from '../_shared/validation';
 import { pickWritable } from '../_shared/pickWritable';
 import type { IAddress, PublicUser } from '../user/user.interface';
@@ -129,6 +141,7 @@ export async function toPublicOrder(doc: OrderDoc | null): Promise<PublicOrder> 
     couponCode: doc.couponCode ?? null,
     shippingCharge: doc.shippingCharge,
     total: doc.total,
+    paidAmount: doc.paidAmount ?? 0,
     paymentMethod: paymentMethod ?? null,
     paymentStatus: doc.paymentStatus,
     orderStatus: doc.orderStatus,
@@ -616,6 +629,7 @@ export async function createOrder(
     couponRef,
     shippingCharge,
     total: calc.total,
+    paidAmount: 0,
     paymentMethod: input.paymentMethod ?? null,
     paymentStatus: 'unpaid',
     orderStatus: 'pending',
@@ -700,9 +714,20 @@ export async function updatePaymentStatus(
   id: string,
   paymentStatus: PaymentStatus
 ): Promise<PublicOrder> {
+  const existing = (await Order.findById(id).lean().exec()) as OrderDoc | null;
+  if (!existing) throw ApiError.notFound('Order not found');
+
+  // When admin manually flips to 'paid', snapshot paidAmount = total
+  // (so the invoice shows fully paid). For any other transition we
+  // leave paidAmount alone — partial payments survive the status flip.
+  const set: Record<string, unknown> = { paymentStatus };
+  if (paymentStatus === 'paid' && existing.paymentStatus !== 'paid') {
+    set.paidAmount = existing.total;
+  }
+
   const updated = (await Order.findOneAndUpdate(
     { _id: id },
-    { $set: { paymentStatus } },
+    { $set: set },
     { new: true, runValidators: true }
   )
     .lean()
@@ -734,4 +759,251 @@ export async function updateOrderDetails(
     .exec()) as OrderDoc | null;
   if (!updated) throw ApiError.notFound('Order not found');
   return toPublicOrder(updated);
+}
+
+/* ------------------------------------------------------------------
+ *  Manual reviews (admin-only, multiple per order)
+ * ------------------------------------------------------------------ */
+
+export async function listOrderReviews(orderId: string): Promise<PublicOrderReview[]> {
+  const order = await Order.exists({ _id: orderId });
+  if (!order) throw ApiError.notFound('Order not found');
+  const docs = (await OrderReview.find({ orderId })
+    .sort({ createdAt: -1 })
+    .lean()
+    .exec()) as (IOrderReview & { _id: unknown; createdBy: unknown; createdAt?: Date; updatedAt?: Date })[];
+  if (docs.length === 0) return [];
+  const userIds = Array.from(
+    new Set(docs.map((d) => String(d.createdBy)))
+  );
+  const users = await User.find({ _id: { $in: userIds } })
+    .select('name')
+    .lean()
+    .exec();
+  const nameById = new Map(
+    users.map((u) => [String(u._id), (u as { name?: string }).name ?? ''])
+  );
+  return docs.map((d) => ({
+    id: String(d._id),
+    orderId: String(d.orderId),
+    image:
+      d.image?.url && d.image?.fileId
+        ? { url: d.image.url, fileId: d.image.fileId }
+        : undefined,
+    comment: d.comment && d.comment.length > 0 ? d.comment : undefined,
+    createdBy: { id: String(d.createdBy), name: nameById.get(String(d.createdBy)) ?? '' },
+    createdAt: d.createdAt?.toISOString?.(),
+    updatedAt: d.updatedAt?.toISOString?.(),
+  }));
+}
+
+export async function createOrderReview(
+  orderId: string,
+  body: { image?: { url: string; fileId: string }; comment?: string },
+  actorId: string
+): Promise<PublicOrderReview> {
+  const order = await Order.exists({ _id: orderId });
+  if (!order) throw ApiError.notFound('Order not found');
+
+  const hasImage = !!(body.image?.url && body.image?.fileId);
+  const hasComment = !!(body.comment && body.comment.trim().length > 0);
+  if (!hasImage && !hasComment) {
+    throw ApiError.badRequest('At least one of image or comment is required');
+  }
+
+  const created = await OrderReview.create({
+    orderId,
+    image: hasImage ? { url: body.image!.url, fileId: body.image!.fileId } : undefined,
+    comment: hasComment ? body.comment!.trim() : '',
+    createdBy: actorId,
+  });
+
+  const actor = await User.findById(actorId).select('name').lean().exec();
+  const populated = created as unknown as OrderReviewDoc;
+  return {
+    id: String(populated._id),
+    orderId: String(populated.orderId),
+    image:
+      populated.image?.url && populated.image?.fileId
+        ? { url: populated.image.url, fileId: populated.image.fileId }
+        : undefined,
+    comment:
+      populated.comment && populated.comment.length > 0
+        ? populated.comment
+        : undefined,
+    createdBy: {
+      id: String(populated.createdBy),
+      name: (actor as { name?: string } | null)?.name ?? '',
+    },
+    createdAt: populated.createdAt?.toISOString?.(),
+    updatedAt: populated.updatedAt?.toISOString?.(),
+  };
+}
+
+/* ------------------------------------------------------------------
+ *  Manual payments (admin-only, multiple per order)
+ * ------------------------------------------------------------------ */
+
+export async function listOrderPayments(
+  orderId: string
+): Promise<PublicOrderPayment[]> {
+  const order = await Order.exists({ _id: orderId });
+  if (!order) throw ApiError.notFound('Order not found');
+  const docs = (await OrderPayment.find({ orderId })
+    .sort({ createdAt: -1 })
+    .lean()
+    .exec()) as (IOrderPayment & { _id: unknown; createdBy: unknown; createdAt?: Date; updatedAt?: Date })[];
+  if (docs.length === 0) return [];
+  const userIds = Array.from(
+    new Set(docs.map((d) => String(d.createdBy)))
+  );
+  const users = await User.find({ _id: { $in: userIds } })
+    .select('name')
+    .lean()
+    .exec();
+  const nameById = new Map(
+    users.map((u) => [String(u._id), (u as { name?: string }).name ?? ''])
+  );
+  return docs.map((d) => ({
+    id: String(d._id),
+    orderId: String(d.orderId),
+    amount: d.amount,
+    note: d.note && d.note.length > 0 ? d.note : undefined,
+    createdBy: {
+      id: String(d.createdBy),
+      name: nameById.get(String(d.createdBy)) ?? '',
+    },
+    createdAt: d.createdAt?.toISOString?.(),
+    updatedAt: d.updatedAt?.toISOString?.(),
+  }));
+}
+
+export interface RecordOrderPaymentResult {
+  payment: PublicOrderPayment;
+  order: PublicOrder;
+}
+
+export async function recordOrderPayment(
+  orderId: string,
+  body: { amount: number; note?: string },
+  actorId: string
+): Promise<RecordOrderPaymentResult> {
+  const order = await Order.findById(orderId).exec();
+  if (!order) throw ApiError.notFound('Order not found');
+
+  const amount = Math.floor(Number(body.amount));
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw ApiError.badRequest('Amount must be a positive whole number');
+  }
+
+  const created = await OrderPayment.create({
+    orderId,
+    amount,
+    note: body.note && body.note.trim().length > 0 ? body.note.trim() : '',
+    createdBy: actorId,
+  });
+
+  // Recompute paidAmount from the payment log (not from the order's
+  // previous paidAmount — that way deletes/refunds via future
+  // tooling stay consistent).
+  const sumAgg = await OrderPayment.aggregate<{ _id: null; total: number }>([
+    { $match: { orderId: order._id } },
+    { $group: { _id: null, total: { $sum: '$amount' } } },
+  ]).exec();
+  const paidAmount = sumAgg[0]?.total ?? 0;
+
+  // Auto-flip payment status.
+  let nextStatus: PaymentStatus = order.paymentStatus;
+  if (paidAmount >= order.total) {
+    nextStatus = 'paid';
+  } else if (paidAmount > 0 && order.paymentStatus === 'unpaid') {
+    nextStatus = 'pending_verification';
+  }
+
+  const updated = (await Order.findOneAndUpdate(
+    { _id: orderId },
+    { $set: { paidAmount, paymentStatus: nextStatus } },
+    { new: true }
+  )
+    .lean()
+    .exec()) as OrderDoc | null;
+  if (!updated) throw ApiError.notFound('Order not found');
+
+  const actor = await User.findById(actorId).select('name').lean().exec();
+  const populated = created as unknown as OrderPaymentDoc;
+  const payment: PublicOrderPayment = {
+    id: String(populated._id),
+    orderId: String(populated.orderId),
+    amount: populated.amount,
+    note:
+      populated.note && populated.note.length > 0 ? populated.note : undefined,
+    createdBy: {
+      id: String(populated.createdBy),
+      name: (actor as { name?: string } | null)?.name ?? '',
+    },
+    createdAt: populated.createdAt?.toISOString?.(),
+    updatedAt: populated.updatedAt?.toISOString?.(),
+  };
+
+  return { payment, order: await toPublicOrder(updated) };
+}
+
+/* ------------------------------------------------------------------
+ *  Internal — hydrated doc lookups (used by the invoice endpoint).
+ * ------------------------------------------------------------------ */
+
+export async function getOrderDocById(id: string): Promise<OrderDoc> {
+  const doc = (await Order.findById(id)
+    .populate('customer', 'name phone email')
+    .populate('paymentMethod')
+    .lean()
+    .exec()) as OrderDoc | null;
+  if (!doc) throw ApiError.notFound('Order not found');
+  return doc;
+}
+
+export async function getOrderDocByNumber(
+  orderNumber: string
+): Promise<OrderDoc> {
+  const trimmed = orderNumber.trim();
+  if (!trimmed) throw ApiError.badRequest('Order number is required');
+  const doc = (await Order.findOne({ orderNumber: trimmed })
+    .populate('customer', 'name phone email')
+    .populate('paymentMethod')
+    .lean()
+    .exec()) as OrderDoc | null;
+  if (!doc) throw ApiError.notFound('Order not found');
+  return doc;
+}
+
+export async function listOrderPaymentsForOrderDoc(
+  orderId: string
+): Promise<PublicOrderPayment[]> {
+  const docs = (await OrderPayment.find({ orderId })
+    .sort({ createdAt: -1 })
+    .lean()
+    .exec()) as (IOrderPayment & { _id: unknown; createdBy: unknown; createdAt?: Date; updatedAt?: Date })[];
+  if (docs.length === 0) return [];
+  const userIds = Array.from(
+    new Set(docs.map((d) => String(d.createdBy)))
+  );
+  const users = await User.find({ _id: { $in: userIds } })
+    .select('name')
+    .lean()
+    .exec();
+  const nameById = new Map(
+    users.map((u) => [String(u._id), (u as { name?: string }).name ?? ''])
+  );
+  return docs.map((d) => ({
+    id: String(d._id),
+    orderId: String(d.orderId),
+    amount: d.amount,
+    note: d.note && d.note.length > 0 ? d.note : undefined,
+    createdBy: {
+      id: String(d.createdBy),
+      name: nameById.get(String(d.createdBy)) ?? '',
+    },
+    createdAt: d.createdAt?.toISOString?.(),
+    updatedAt: d.updatedAt?.toISOString?.(),
+  }));
 }

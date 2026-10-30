@@ -63,6 +63,96 @@ const SettingsSchema = new Schema<ISettings>(
     newArrivalCount: { type: Number, default: 8, min: 1, max: 50 },
     bestSellerCount: { type: Number, default: 8, min: 1, max: 50 },
 
+    /* ---------- Homepage banner (hero) ---------- */
+    heroImage: {
+      url: { type: String, default: '', trim: true },
+      fileId: { type: String, default: '', trim: true },
+    },
+    // Hero copy is admin-editable so the landing page can be re-art-directed
+    // (campaign, seasonal offer, new positioning) without a redeploy. The
+    // defaults below are the art-directed launch copy — leaving the CMS
+    // fields empty is never a valid state.
+    heroEyebrow: {
+      type: String,
+      default: 'Authentic Luxury Decants',
+      trim: true,
+      maxlength: 80,
+    },
+    heroHeadline: {
+      type: String,
+      default: 'The Art of Scent, Decanted.',
+      trim: true,
+      maxlength: 120,
+    },
+    heroSubheadline: {
+      type: String,
+      default:
+        'Experience the world’s finest fragrances in considered sizes. Authentic decants, meticulously sourced and beautifully presented.',
+      trim: true,
+      maxlength: 400,
+    },
+    heroCtaLabel: {
+      type: String,
+      default: 'Shop the Collection',
+      trim: true,
+      maxlength: 40,
+    },
+    heroCtaHref: { type: String, default: '/', trim: true, maxlength: 500 },
+    heroPriceLabel: {
+      type: String,
+      default: 'Decants from',
+      trim: true,
+      maxlength: 40,
+    },
+    heroPriceValue: {
+      type: String,
+      default: '৳2,200',
+      trim: true,
+      maxlength: 24,
+    },
+
+    /* ---------- Homepage discount banner ---------- */
+    discountImage: {
+      url: { type: String, default: '', trim: true },
+      fileId: { type: String, default: '', trim: true },
+    },
+    discountEnabled: { type: Boolean, default: true },
+    discountCtaHref: { type: String, default: '/', trim: true, maxlength: 500 },
+    discountEyebrow: {
+      type: String,
+      default: 'Limited Time Only',
+      trim: true,
+      maxlength: 80,
+    },
+    discountHeadline: {
+      type: String,
+      default: 'Up to 20% Off Selected Decants',
+      trim: true,
+      maxlength: 120,
+    },
+    discountSubheadline: {
+      type: String,
+      default:
+        'Discover premium fragrances at a rare reduction. Same authenticity. More to explore.',
+      trim: true,
+      maxlength: 400,
+    },
+    discountCtaLabel: {
+      type: String,
+      default: 'Shop the Offer',
+      trim: true,
+      maxlength: 40,
+    },
+
+    /* ---------- Footer content ---------- */
+    footerBlurb: {
+      type: String,
+      default:
+        'Authentic luxury perfume decants. Bangladesh’s favourite destination for genuine, hand-filled fragrances in considered sizes.',
+      trim: true,
+      maxlength: 400,
+    },
+
     updatedBy: {
       type: Schema.Types.ObjectId,
       ref: 'User',

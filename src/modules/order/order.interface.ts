@@ -69,6 +69,7 @@ export interface IOrder {
   couponRef?: Types.ObjectId | null;
   shippingCharge: number;
   total: number;
+  paidAmount: number;
   paymentMethod?: Types.ObjectId | null;
   paymentStatus: PaymentStatus;
   orderStatus: OrderStatus;
@@ -117,6 +118,7 @@ export interface PublicOrder {
   shippingAddress: IShippingAddressSnapshot;
   notes?: string;
   inventoryReversed?: boolean;
+  paidAmount: number;
   createdBy: { id: string; name: string };
   createdAt?: string;
   updatedAt?: string;
