@@ -14,6 +14,12 @@ export interface CustomerListItem {
   phone: string | null;
   email: string | null;
   isActive: boolean;
+  /**
+   * True for a guest-customer record — a shopper who checked out without
+   * an account. Guests have no password and can never log in; they exist
+   * so their orders are attributable and searchable.
+   */
+  isGuest: boolean;
   totalOrders: number;
   totalSpent: number;
   lastOrderAt: string | null;
@@ -26,6 +32,8 @@ export interface CustomerDetail {
   phone: string | null;
   email: string | null;
   isActive: boolean;
+  /** True for a guest-customer record (no account / no password). */
+  isGuest: boolean;
   addresses: {
     id: string;
     label?: string;
@@ -45,6 +53,7 @@ export const CUSTOMER_QUERY_CONFIG: QueryConfig = {
   searchFields: ['name', 'phone', 'email'],
   allowedFilters: {
     isActive: 'boolean',
+    isGuest: 'boolean',
   },
   defaultSort: '-createdAt',
   maxLimit: 100,

@@ -3,6 +3,7 @@ import * as service from './order.service';
 import { streamInvoice } from './invoice.service';
 import { sendResponse } from '../../utils/sendResponse';
 import { asyncHandler } from '../../utils/asyncHandler';
+import { sendOrderConfirmationEmail } from '../email/orderConfirmation.service';
 
 export const listOrders = asyncHandler(async (req: Request, res: Response) => {
   const data = await service.listOrders(req.query as Record<string, unknown>);
@@ -20,8 +21,53 @@ export const calculateOrder = asyncHandler(async (req: Request, res: Response) =
 });
 
 export const createOrder = asyncHandler(async (req: Request, res: Response) => {
+  /**
+   * The authenticated actor, or an EMPTY STRING for a guest checkout.
+   *
+   * An empty string is meaningful: the service uses it to decide whether
+   * to stamp `createdBy` at all. A guest order must have NO actor — we
+   * never borrow an admin id to fill the field, because `createdBy`
+   * answers "which staff member placed this order" and the honest answer
+   * for a guest is "nobody".
+   */
   const actorId = (req as unknown as { user?: { id?: string } }).user?.id ?? '';
-  const data = await service.createOrder(req.body, actorId);
+  /* Idempotency: a client-supplied `Idempotency-Key` header makes the
+   * create-order call safe to retry. A retried request with the same key
+   * returns the ORIGINAL order instead of creating a second one and
+   * deducting stock a second time. Mobile clients retry on flaky
+   * networks, so this is the most likely double-deduction path. */
+  const headerKey = req.headers['idempotency-key'];
+  const idempotencyKey =
+    (typeof headerKey === 'string' ? headerKey : undefined) ??
+    (req.body as { idempotencyKey?: string } | undefined)?.idempotencyKey ??
+    null;
+  const data = await service.createOrder(
+    { ...req.body, idempotencyKey },
+    actorId
+  );
+
+  /**
+   * Send the order confirmation email.
+   *
+   * This is deliberately HERE, in the controller, and AFTER
+   * `service.createOrder` returned successfully:
+   *
+   *   - The service's try/catch is what restores the deducted stock if
+   *     anything goes wrong. Reaching this line means the order is
+   *     committed, so no email is attempted for an order that was rolled
+   *     back.
+   *   - The email is FIRE-AND-FORGET. The response does not wait for the
+   *     provider, and a provider outage cannot turn a successful order
+   *     into a 500. `sendOrderConfirmationEmail` swallows its own errors
+   *     and never throws.
+   *
+   * The service itself skips `manual` (admin-created) orders, orders
+   * with no recipient email, and orders whose email was already sent.
+   */
+  void sendOrderConfirmationEmail(data.id).catch(() => {
+    // Already logged inside the helper — nothing to do here.
+  });
+
   return sendResponse(res, { statusCode: 201, message: 'Order created', data });
 });
 

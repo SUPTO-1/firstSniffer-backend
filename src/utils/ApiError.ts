@@ -38,6 +38,17 @@ export class ApiError extends Error {
   static conflict(message = 'Conflict'): ApiError {
     return new ApiError(httpStatus.CONFLICT, message);
   }
+  /**
+   * 429 — the caller exceeded a rate limit.
+   *
+   * Deliberately distinct from `badRequest`: a 400 tells the client its
+   * INPUT is wrong, whereas a 429 tells it to RETRY LATER. The storefront
+   * shows a different message for each, and intermediaries (proxies,
+   * SDK retry policies) only understand 429.
+   */
+  static tooManyRequests(message = 'Too many requests'): ApiError {
+    return new ApiError(httpStatus.TOO_MANY_REQUESTS, message);
+  }
   static internal(message = 'Internal server error'): ApiError {
     return new ApiError(httpStatus.INTERNAL_SERVER_ERROR, message);
   }

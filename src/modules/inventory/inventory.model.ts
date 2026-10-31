@@ -36,7 +36,7 @@ const InventorySchema = new Schema<InventoryDoc>(
     bottleSize: {
       type: String,
       required: [true, 'Bottle size is required'],
-      enum: ['3ml', '5ml', '10ml', '30ml'],
+      enum: ['3ml', '5ml', '10ml', '15ml', '30ml'],
     },
     totalMl: {
       type: Number,

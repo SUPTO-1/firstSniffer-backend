@@ -9,7 +9,7 @@ import type { PublicWeather } from '../weather/weather.interface';
 import type { PublicTime } from '../timeofday/time.interface';
 import type { PublicAtomizer } from '../atomizer/atomizer.interface';
 
-export type ProductSize = '3ml' | '5ml' | '10ml' | '30ml';
+export type ProductSize = '3ml' | '5ml' | '10ml' | '15ml' | '30ml';
 
 export interface IProductImage {
   url: string;
@@ -20,6 +20,8 @@ export interface IProductImage {
 export interface IProductVariant {
   size: ProductSize;
   price: number;
+  /** Admin toggle for the selling size. Defaults to true. */
+  isActive: boolean;
 }
 
 export interface IProductPerformance {
@@ -54,6 +56,10 @@ export interface IProduct {
   variants: IProductVariant[];
   defaultAtomizer?: Types.ObjectId;
   aliases: string[];
+  /** Seller-held margin (ml) kept back from sale. Enforced, not advisory. */
+  safetyBufferMl: number;
+  /** Warn when sellable stock falls to or below this (ml). */
+  lowStockThresholdMl: number;
   averageRating: number;
   reviewCount: number;
   featured: boolean;
@@ -102,6 +108,18 @@ export interface PublicProduct {
   deletedAt: string | null;
   createdAt?: string;
   updatedAt?: string;
+  /**
+   * Product-level stock summary. Present on PUBLIC payloads only — the
+   * stock is a single shared ml pool per product, and every selling size
+   * draws from it.
+   */
+  stock?: {
+    /** Physical capacity on hand across all purchase batches. */
+    totalMl: number;
+    /** What a customer can actually buy: remaining minus the safety buffer. */
+    sellableMl: number;
+    status: 'in_stock' | 'low_stock' | 'out_of_stock';
+  };
 }
 
 export const PRODUCT_QUERY_CONFIG: QueryConfig = {

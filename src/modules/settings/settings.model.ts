@@ -39,7 +39,7 @@ const SettingsSchema = new Schema<ISettings>(
     freeShippingThreshold: { type: Number, default: 0, min: 0 },
 
     /* ---------- Inventory defaults ---------- */
-    defaultReservedBufferMl: { type: Number, default: 0, min: 0 },
+    defaultSafetyBufferMl: { type: Number, default: 0, min: 0 },
     lowStockDefaultMl: { type: Number, default: 30, min: 0 },
 
     /* ---------- Orders ---------- */

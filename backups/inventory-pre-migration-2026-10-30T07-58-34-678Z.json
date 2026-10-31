@@ -1,0 +1,130 @@
+{
+  "takenAt": "2026-10-30T07:58:34.679Z",
+  "inventories": [
+    {
+      "_id": "6adcbfdcb6fcaedf910774bb",
+      "product": "6adcbfa8b6fcaedf91077481",
+      "productName": "Dior Sauvage",
+      "bottleSize": "3ml",
+      "totalMl": 100,
+      "reservedBufferMl": 10,
+      "remainingMl": 100,
+      "purchaseCost": 15000,
+      "lowStockThresholdMl": 30,
+      "createdAt": "2026-10-24T14:25:32.027Z",
+      "updatedAt": "2026-10-24T14:25:47.105Z",
+      "__v": 0
+    }
+  ],
+  "inventorylogs": [
+    {
+      "_id": "6adcbfdcb6fcaedf910774bd",
+      "inventory": "6adcbfdcb6fcaedf910774bb",
+      "product": "6adcbfa8b6fcaedf91077481",
+      "type": "add",
+      "quantityMl": 100,
+      "note": "Initial batch",
+      "createdBy": "6adcb200b6fcaedf9107730e",
+      "createdAt": "2026-10-24T14:25:32.032Z",
+      "updatedAt": "2026-10-24T14:25:32.032Z",
+      "__v": 0
+    }
+  ],
+  "inventorybatches": [],
+  "products": [
+    {
+      "_id": "6adcbfa8b6fcaedf91077481",
+      "name": "Dior Sauvage",
+      "slug": "dior-sauvage",
+      "brand": "6adcb2abb6fcaedf91077360",
+      "genres": [
+        "6adcb443b6fcaedf9107739b",
+        "6adcb4ccb6fcaedf910773a3",
+        "6adcb41db6fcaedf91077397"
+      ],
+      "description": "A fresh and powerful fragrance combining bright bergamot with spicy pepper and an earthy ambroxan-style woody dry-down. Suitable for everyday wear and evening outings.",
+      "notes": {
+        "top": [
+          "6adcb690b6fcaedf910773c3",
+          "6adcb775b6fcaedf910773ef",
+          "6adcb718b6fcaedf910773d3"
+        ],
+        "middle": [
+          "6adcb701b6fcaedf910773cf",
+          "6adcb78db6fcaedf910773f3",
+          "6adcb752b6fcaedf910773db"
+        ],
+        "base": [
+          "6adcb752b6fcaedf910773db",
+          "6adcb78db6fcaedf910773f3",
+          "6adcb735b6fcaedf910773d7"
+        ]
+      },
+      "gender": "unisex",
+      "seasons": [
+        "6adcb7f7b6fcaedf91077403",
+        "6adcb7b7b6fcaedf910773fb"
+      ],
+      "occasions": [
+        "6adcbbbab6fcaedf91077421",
+        "6adcbb58b6fcaedf91077415",
+        "6adcbb32b6fcaedf91077411"
+      ],
+      "weathers": [
+        "6adcbc21b6fcaedf91077431"
+      ],
+      "times": [
+        "6adcbc7db6fcaedf91077441"
+      ],
+      "performance": {
+        "longevity": "long-lasting",
+        "projection": "strong",
+        "versatility": "versatile"
+      },
+      "images": [
+        {
+          "url": "https://ik.imagekit.io/3lx8shgem/products/dio_2_A_px4uvMb.jpg",
+          "fileId": "6adcbfd6ead997d09a1a5549",
+          "alt": ""
+        },
+        {
+          "url": "https://ik.imagekit.io/3lx8shgem/products/dior_sauvage_JGvBipc5a.jpg",
+          "fileId": "6adcbfa3ead997d09a193a0f",
+          "alt": ""
+        }
+      ],
+      "variants": [
+        {
+          "size": "3ml",
+          "price": 250
+        },
+        {
+          "size": "5ml",
+          "price": 400
+        },
+        {
+          "size": "10ml",
+          "price": 770
+        },
+        {
+          "size": "30ml",
+          "price": 1250
+        }
+      ],
+      "defaultAtomizer": "6adcbcffb6fcaedf91077455",
+      "aliases": [],
+      "averageRating": 0,
+      "reviewCount": 0,
+      "featured": true,
+      "bestSelling": true,
+      "topRated": true,
+      "newArrival": true,
+      "isActive": true,
+      "deletedAt": null,
+      "createdAt": "2026-10-24T14:24:40.587Z",
+      "updatedAt": "2026-10-24T14:25:47.081Z",
+      "__v": 0
+    }
+  ],
+  "orders": []
+}

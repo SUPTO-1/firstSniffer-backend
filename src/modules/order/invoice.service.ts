@@ -214,7 +214,7 @@ function drawInvoice(
       name,
       String(item.size),
       `${item.millilitres}ml`,
-      BDT.format(item.unitPricePerMl),
+      BDT.format(item.unitPrice),
       BDT.format(item.totalPrice),
     ]);
     rowY += 22;

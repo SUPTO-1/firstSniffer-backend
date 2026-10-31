@@ -7,7 +7,7 @@ const ComboProductSchema = new Schema(
     size: {
       type: String,
       required: true,
-      enum: ['3ml', '5ml', '10ml', '30ml'],
+      enum: ['3ml', '5ml', '10ml', '15ml', '30ml'],
     },
     millilitres: { type: Number, required: true, min: 1 },
   },

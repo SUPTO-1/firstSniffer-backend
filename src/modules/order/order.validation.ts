@@ -12,6 +12,7 @@ import {
   paymentStatusEnum,
   shippingZoneEnum,
 } from '../_shared/validation';
+import { BD_MOBILE_REGEX } from '../user/user.constants';
 
 const shippingAddressInput = z
   .object({
@@ -61,9 +62,45 @@ export const calculateOrderSchema = z
   .strict();
 
 /* ----- Create order ----- */
+
+/**
+ * Guest buyer details supplied by an anonymous storefront visitor.
+ *
+ * `phone` is REQUIRED (it is the only way to reach a guest for delivery,
+ * and the key used to find their guest user record). `email` is optional.
+ */
+const guestInfoInput = z
+  .object({
+    name: z.string().trim().min(2, 'Name must be at least 2 characters').max(80),
+    phone: z
+      .string()
+      .trim()
+      .regex(BD_MOBILE_REGEX, 'Enter a valid Bangladeshi mobile (e.g. 01712345678)'),
+    email: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .max(200)
+      .optional()
+      .or(z.literal('').transform(() => undefined)),
+    label: z.string().trim().max(40).optional(),
+    district: bdDistrictEnum,
+    area: bdAreaEnum,
+    address: addressLineEnum,
+  })
+  .strict();
+
 export const createOrderSchema = z
   .object({
-    customer: objectId,
+    /**
+     * The customer account the order belongs to. Optional — a guest order
+     * omits it and supplies `guestInfo` instead.
+     */
+    customer: objectId.optional(),
+    /**
+     * Guest buyer details. Present only on anonymous checkout orders.
+     */
+    guestInfo: guestInfoInput.optional(),
     orderSource: orderSourceEnum.default('manual'),
     items: z.array(orderItemInput).min(1, 'At least one line is required'),
     combos: z.array(orderComboItemInput).optional(),
@@ -77,8 +114,49 @@ export const createOrderSchema = z
       .optional()
       .or(z.literal('').transform(() => undefined)),
     notes: z.string().trim().max(1000).optional(),
+    /* Payment evidence supplied by the customer at checkout (bKash /
+     * Nagad sender number + TrxID). Optional because the storefront
+     * collects them but COD orders never have them. */
+    paymentDetails: z
+      .object({
+        senderMobile: z
+          .string()
+          .trim()
+          .regex(BD_MOBILE_REGEX, 'Enter a valid Bangladeshi mobile (e.g. 01712345678)'),
+        transactionId: z.string().trim().min(6).max(120),
+      })
+      .strict()
+      .optional(),
+    /* Optional in-body idempotency key. The `Idempotency-Key` HEADER is
+     * the preferred channel (the controller merges it in), but accepting
+     * it in the body too lets clients that cannot set headers still get
+     * retry-safety. */
+    idempotencyKey: z.string().trim().min(1).max(120).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((val, ctx) => {
+    /* An order must identify WHO it belongs to — either a registered
+     * customer account, or a guest's own details. Never neither. */
+    if (!val.customer && !val.guestInfo) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'Either a customer account or guest details are required to place an order',
+        path: [],
+      });
+    }
+    /* Supplying both is ambiguous: the guest snapshot would silently
+     * disagree with the referenced account. Reject it outright rather
+     * than silently picking one. */
+    if (val.customer && val.guestInfo) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'Provide either a customer account or guest details, not both',
+        path: [],
+      });
+    }
+  });
 
 /* ----- Status updates ----- */
 export const updateOrderStatusSchema = z

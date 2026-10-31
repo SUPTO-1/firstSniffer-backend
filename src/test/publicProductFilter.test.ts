@@ -356,7 +356,7 @@ describe('Availability (inStock)', () => {
     expect(names).toEqual([]);
   });
 
-  it('a real Inventory query only returns rows with remainingMl > 0', async () => {
+  it('a real batch query only returns rows with remainingMl > 0', async () => {
     const products = await seedProducts(tax, [
       { name: 'HasStock', brand: tax.brands.Zara },
       { name: 'NoStock', brand: tax.brands.Zara },
@@ -365,8 +365,12 @@ describe('Availability (inStock)', () => {
       { product: products.HasStock, productName: 'HasStock', remainingMl: 10 },
       { product: products.NoStock, productName: 'NoStock', remainingMl: 0 },
     ]);
-    const { Inventory } = await import('../modules/inventory/inventory.model');
-    const rows = await Inventory.find({ remainingMl: { $gt: 0 } }).lean().exec();
+    const { InventoryBatch } = await import(
+      '../modules/inventory/inventoryBatch.model'
+    );
+    const rows = await InventoryBatch.find({ remainingMl: { $gt: 0 } })
+      .lean()
+      .exec();
     const ids = rows.map((r) => String((r as { product: { toString(): string } }).product));
     expect(ids).toHaveLength(1);
     expect(String(products.HasStock)).toBe(ids[0]);

@@ -1,7 +1,10 @@
 import type { Request, Response } from 'express';
-import { Types } from 'mongoose';
 import { Product } from '../product/product.model';
-import { Inventory } from '../inventory/inventory.model';
+import { InventoryBatch } from '../inventory/inventoryBatch.model';
+import {
+  getProductStockForProducts,
+} from '../inventory/inventoryBatch.service';
+import type { InventoryStatus } from '../inventory/inventoryBatch.interface';
 import { sendResponse, sendError } from '../../utils/sendResponse';
 import { asyncHandler } from '../../utils/asyncHandler';
 import type { PublicProduct } from '../product/product.interface';
@@ -93,28 +96,105 @@ function withDerived<T>(doc: T): T & { priceRange: { min: number | null; max: nu
 }
 
 /**
- * Product ids with at least one inventory row that still has sellable stock
- * (`remainingMl > 0`). Returned as raw ids so the caller can `$in` them.
+ * Product ids that have sellable stock right now.
  *
- * A product qualifies when ANY of its inventory rows is in stock — the
- * storefront only needs "can this be bought right now".
+ * Stock is a PRODUCT-level pool: a product may have several purchase
+ * batches and every selling size draws from the same millilitres. So a
+ * product is "in stock" when its AGGREGATE remaining ml across batches
+ * minus its safety buffer is above zero — not when any single batch row
+ * happens to have `remainingMl > 0`.
+ *
+ * Returned as raw ids so the caller can `$in` them.
  */
 async function inStockProductIds(): Promise<string[]> {
-  const rows = await Inventory.find({ remainingMl: { $gt: 0 } })
-    .select('product')
+  const rows = await InventoryBatch.find({ isActive: true })
+    .select('product remainingMl')
     .limit(20_000)
     .lean()
     .exec();
-  const seen = new Set<string>();
+
+  const remainingByProduct = new Map<string, number>();
   for (const r of rows) {
-    const p = (r as { product?: unknown }).product;
-    const id =
-      p && typeof p === 'object' && '_id' in (p as Record<string, unknown>)
-        ? String((p as { _id: unknown })._id)
-        : String(p ?? '');
-    if (id) seen.add(id);
+    const id = String((r as { product?: unknown }).product ?? '');
+    if (!id) continue;
+    remainingByProduct.set(
+      id,
+      (remainingByProduct.get(id) ?? 0) + Number((r as { remainingMl?: number }).remainingMl ?? 0)
+    );
   }
-  return Array.from(seen);
+
+  if (remainingByProduct.size === 0) return [];
+
+  // Apply the per-product safety buffer — it is enforced, so it must be
+  // subtracted before deciding whether a product is purchasable.
+  const products = await Product.find({
+    _id: { $in: [...remainingByProduct.keys()] },
+  })
+    .select('safetyBufferMl')
+    .lean()
+    .exec();
+  const bufferById = new Map(
+    products.map((p) => [
+      String(p._id),
+      Math.max(0, Number(p.safetyBufferMl ?? 0)),
+    ])
+  );
+
+  const ids: string[] = [];
+  for (const [id, remaining] of remainingByProduct.entries()) {
+    const sellable = remaining - (bufferById.get(id) ?? 0);
+    if (sellable > 0) ids.push(id);
+  }
+  return ids;
+}
+
+/**
+ * Attach the product-level stock summary the storefront needs.
+ *
+ * `stock.totalMl` is the physical capacity on hand, `stock.sellableMl`
+ * is what a customer can actually buy (remaining minus the safety
+ * buffer), and `stock.status` drives the "Only X ml left" badge.
+ */
+async function withStock<T extends { id?: string }>(docs: T[]): Promise<
+  Array<T & { stock: { totalMl: number; sellableMl: number; status: InventoryStatus } }>
+> {
+  const ids = docs.map((d) => String(d.id ?? '')).filter(Boolean);
+  if (ids.length === 0) {
+    return docs.map((d) => ({
+      ...d,
+      stock: { totalMl: 0, sellableMl: 0, status: 'out_of_stock' as InventoryStatus },
+    }));
+  }
+
+  const stockByProduct = await getProductStockForProducts(ids);
+  return docs.map((d) => {
+    const stock = stockByProduct.get(String(d.id ?? ''));
+    return {
+      ...d,
+      stock: {
+        totalMl: stock?.totalMl ?? 0,
+        sellableMl: stock?.sellableMl ?? 0,
+        status: stock?.status ?? ('out_of_stock' as InventoryStatus),
+      },
+    };
+  });
+}
+
+/**
+ * Strip DISABLED selling variants from a public payload.
+ *
+ * A disabled variant is not purchasable, so the storefront must not
+ * offer it. The admin surface still sees them (it reads the admin
+ * product endpoint, not this one).
+ */
+function withoutDisabledVariants<T extends { variants?: unknown }>(doc: T): T {
+  const variants = (doc as { variants?: unknown }).variants;
+  if (!Array.isArray(variants)) return doc;
+  (doc as { variants: unknown[] }).variants = variants.filter((v) => {
+    const isActive = (v as { isActive?: boolean })?.isActive;
+    return isActive !== false;
+  });
+  return doc;
 }
 
 /**
@@ -226,10 +306,16 @@ export const listPublicProducts = asyncHandler(
       return withDerived(doc);
     }) as unknown as Array<PublicProduct & { priceRange: { min: number | null; max: number | null } }>;
 
+    // Disabled selling variants are not offered on the storefront.
+    for (const doc of results) withoutDisabledVariants(doc);
+
+    // Product-level stock summary (total / sellable / status).
+    const withStockResults = await withStock(results);
+
     return sendResponse(res, {
       message: 'Products fetched',
       data: {
-        results,
+        results: withStockResults,
         page,
         limit,
         total,
@@ -285,7 +371,10 @@ export const getPublicProductBySlugOrId = asyncHandler(
     delete leanDoc._id;
     delete leanDoc.__v;
     const data = withDerived(leanDoc) as unknown as PublicProduct;
-    return sendResponse(res, { message: 'Product fetched', data });
+    // Disabled selling variants are not offered on the storefront.
+    withoutDisabledVariants(data);
+    const [withStockData] = await withStock([data]);
+    return sendResponse(res, { message: 'Product fetched', data: withStockData });
   }
 );
 

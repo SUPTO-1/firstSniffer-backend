@@ -1,6 +1,6 @@
 import { ApiError } from '../../utils/ApiError';
 import { Combo } from './combo.model';
-import { Inventory } from '../inventory/inventory.model';
+import { getProductStockForProducts } from '../inventory/inventoryBatch.service';
 import { deleteImageKitFile } from '../imagekit/imagekit.service';
 import { pickWritable } from '../_shared/pickWritable';
 import {
@@ -130,20 +130,46 @@ export async function toggleComboActive(
   return toPublicCombo(doc);
 }
 
+/**
+ * Validates that every combo component has enough sellable stock.
+ *
+ * Under the batch model a product has ONE shared ml pool — every selling
+ * size draws from it — so the check is PRODUCT-level, not per-size.
+ * We no longer require an inventory row keyed by (product, size); that
+ * model could not express "one 100ml bottle feeds 3/5/10/15/30ml".
+ *
+ * `ml` on a combo component is the volume the combo consumes of that
+ * product. We check the component's own ml (the combo's stock need) plus
+ * the total ml of every component sharing the same product, because they
+ * all draw from the same pool.
+ */
 async function assertInventoryRows(
-  products: { product: unknown; size: string }[]
+  products: { product: unknown; size: string; ml?: number; millilitres?: number }[]
 ): Promise<void> {
+  if (!products.length) return;
+
+  const productIds = Array.from(
+    new Set(products.map((p) => String(p.product)))
+  );
+
+  const stockByProduct = await getProductStockForProducts(productIds);
+
+  // Total ml each product must supply across ALL its components.
+  const requiredByProduct = new Map<string, number>();
   for (const p of products) {
-    const exists = await Inventory.findOne({
-      product: p.product,
-      bottleSize: p.size,
-    })
-      .select('_id')
-      .lean()
-      .exec();
-    if (!exists) {
+    const id = String(p.product);
+    const ml = Number(p.ml ?? p.millilitres ?? 0);
+    requiredByProduct.set(id, (requiredByProduct.get(id) ?? 0) + ml);
+  }
+
+  for (const [productId, requiredMl] of requiredByProduct.entries()) {
+    const sellable = stockByProduct.get(productId)?.sellableMl ?? 0;
+    if (requiredMl <= 0) continue;
+    if (sellable < requiredMl) {
+      const productName =
+        stockByProduct.get(productId)?.productName || productId;
       throw ApiError.badRequest(
-        `No inventory row exists for component (${p.size}). Create inventory first.`
+        `Combo component ${productName} needs ${requiredMl}ml but only ${sellable}ml is sellable.`
       );
     }
   }

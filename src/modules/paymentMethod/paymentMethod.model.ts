@@ -25,6 +25,34 @@ const PaymentMethodSchema = new Schema<PaymentMethodDoc>(
     instructions: { type: [String], default: [] },
     displayOrder: { type: Number, default: 0, min: 0, index: true },
     isActive: { type: Boolean, default: true, index: true },
+
+    /**
+     * Whether customers must pay part of the order up front.
+     *
+     * Configured per payment method so bKash can demand a 30% advance
+     * while Nagad (or Cash on Delivery) asks for nothing.
+     *
+     * BACKWARD COMPATIBLE: defaults to `false`, so every EXISTING
+     * PaymentMethod record keeps forcing no advance. A record created
+     * before this field existed is read by MongoDB as missing, and
+     * Mongoose applies the default on read/hydration.
+     */
+    advancePaymentRequired: { type: Boolean, default: false },
+
+    /**
+     * The percentage of the order total that must be paid up front.
+     *
+     * Only meaningful when `advancePaymentRequired` is `true`. The
+     * authoritative amount is computed and FROZEN onto each order at
+     * creation time (see `Order.paymentSnapshot`), so later edits to this
+     * field never change a historical order.
+     */
+    advancePaymentPercent: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 100,
+    },
   },
   {
     timestamps: true,

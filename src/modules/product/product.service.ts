@@ -62,6 +62,8 @@ function normalizeVariants(input: unknown): IProductVariant[] {
     .map((v) => ({
       size: v.size as IProductVariant['size'],
       price: Number(v.price ?? 0),
+      // Absent `isActive` means "active" — pre-existing rows keep selling.
+      isActive: v.isActive !== false,
     }));
 }
 

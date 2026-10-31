@@ -32,9 +32,21 @@ const UserSchema = new Schema<UserDoc>(
       type: String,
       trim: true,
       lowercase: true,
-      default: null,
-      // sparse + unique means: documents without an email don't collide
-      // on the unique index, but two users with the same email cannot exist.
+      // NO `default: null` ON PURPOSE.
+      //
+      // A MongoDB `sparse` index skips documents where the field is
+      // ABSENT — but it does NOT skip an explicit `null`. With
+      // `default: null`, Mongoose writes `email: null` into every
+      // document, so the second user to be created without an email
+      // would fail with E11000 (duplicate key) on this unique index.
+      //
+      // That is not hypothetical: GUEST checkout creates a user row for
+      // every anonymous shopper, and the guest email is optional. Two
+      // guests who did not supply an email would collide, and the
+      // second one's checkout would fail with a 500.
+      //
+      // Leaving the default undefined keeps the field genuinely absent
+      // when it was not supplied, which is exactly what `sparse` needs.
       index: { unique: true, sparse: true },
     },
     phone: {
@@ -66,6 +78,27 @@ const UserSchema = new Schema<UserDoc>(
     },
 
     isActive: {
+      type: Boolean,
+      default: true,
+    },
+
+    /**
+     * Whether the customer has confirmed ownership of their email address.
+     *
+     * This exists so `login` can tell two very different situations
+     * apart, both of which leave `isActive: false`:
+     *
+     *   - `emailVerified: false` → the customer registered but never
+     *     entered their code. Actionable by them: "Please verify your
+     *     email address first."
+     *   - `emailVerified: true, isActive: false` → an admin disabled the
+     *     account. Not actionable by them: "This account has been
+     *     disabled."
+     *
+     * The default is `true` so every EXISTING account is treated as
+     * verified — no one is locked out by adding this field.
+     */
+    emailVerified: {
       type: Boolean,
       default: true,
     },

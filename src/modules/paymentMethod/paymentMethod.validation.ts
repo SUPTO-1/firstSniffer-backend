@@ -27,12 +27,51 @@ const baseFields = {
     .default([]),
   displayOrder: z.coerce.number().int().min(0).optional().default(0),
   isActive: z.boolean().optional().default(true),
+  advancePaymentRequired: z.boolean().optional().default(false),
+  advancePaymentPercent: z.coerce.number().min(0).max(100).optional().default(0),
 };
+
+/**
+ * Advance-payment percentage rules.
+ *
+ * - The percentage must be strictly greater than 0 and at most 100 WHEN
+ *   the advance is enabled. A percentage of 0 (or a negative value) would
+ *   mean "no advance required" while the toggle claims there is one —
+ *   silently contradicting the admin's own configuration.
+ * - When the advance is DISABLED the percentage is irrelevant, so it is
+ *   normalised to 0 rather than rejected. That keeps the stored config
+ *   unambiguous and guarantees a disabled method never affects any
+ *   calculation.
+ */
+function refineAdvance(
+  data: { advancePaymentRequired?: boolean; advancePaymentPercent?: number },
+  ctx: z.RefinementCtx
+): void {
+  if (data.advancePaymentRequired !== true) return;
+  const percent = data.advancePaymentPercent ?? 0;
+  if (percent <= 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['advancePaymentPercent'],
+      message: 'Advance payment percentage must be greater than 0',
+    });
+  }
+  if (percent > 100) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['advancePaymentPercent'],
+      message: 'Advance payment percentage cannot be greater than 100',
+    });
+  }
+}
 
 /* Account fields are optional because `cod` has no account. Cross-field
  * refinement is applied at the controller/service layer so the same
  * shape works for create + update. */
-export const createPaymentMethodSchema = z.object(baseFields).strict();
+export const createPaymentMethodSchema = z
+  .object(baseFields)
+  .strict()
+  .superRefine(refineAdvance);
 export const updatePaymentMethodSchema = z
   .object({
     name: baseFields.name.optional(),
@@ -43,8 +82,11 @@ export const updatePaymentMethodSchema = z
     instructions: baseFields.instructions,
     displayOrder: baseFields.displayOrder,
     isActive: baseFields.isActive,
+    advancePaymentRequired: baseFields.advancePaymentRequired,
+    advancePaymentPercent: baseFields.advancePaymentPercent,
   })
-  .strict();
+  .strict()
+  .superRefine(refineAdvance);
 
 export const paymentMethodIdParamSchema = idParamSchema;
 

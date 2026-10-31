@@ -18,6 +18,8 @@ const imageSchema = z.object({
 const variantSchema = z.object({
   size: productSizeEnum,
   price: z.coerce.number().min(0, 'Price must be ≥ 0'),
+  /** Admin toggle for the selling size. Absent means active. */
+  isActive: z.boolean().optional().default(true),
 });
 
 const notesBlockSchema = z.object({
@@ -63,6 +65,9 @@ const baseFields = {
   topRated: z.boolean().optional().default(false),
   newArrival: z.boolean().optional().default(false),
   isActive: z.boolean().optional().default(true),
+  /* Product-level inventory settings (D4 — embedded on Product). */
+  safetyBufferMl: z.coerce.number().int().min(0).optional().default(0),
+  lowStockThresholdMl: z.coerce.number().int().min(0).optional().default(30),
 };
 
 export const createProductSchema = z.object(baseFields).strict();
@@ -89,6 +94,9 @@ const updateFields = {
   topRated: z.boolean().optional(),
   newArrival: z.boolean().optional(),
   isActive: z.boolean().optional(),
+  /* Product-level inventory settings (D4 — embedded on Product). */
+  safetyBufferMl: z.coerce.number().int().min(0).optional(),
+  lowStockThresholdMl: z.coerce.number().int().min(0).optional(),
 };
 export const updateProductSchema = z.object(updateFields).strict();
 

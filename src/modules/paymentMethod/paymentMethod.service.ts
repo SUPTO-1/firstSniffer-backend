@@ -19,6 +19,8 @@ const WRITABLE_PAYMENT_METHOD_KEYS = [
   'instructions',
   'displayOrder',
   'isActive',
+  'advancePaymentRequired',
+  'advancePaymentPercent',
 ] as const;
 
 export function toPublicPaymentMethod(doc: PaymentMethodDoc | null): PublicPaymentMethod {
@@ -43,14 +45,53 @@ export function toPublicPaymentMethod(doc: PaymentMethodDoc | null): PublicPayme
     instructions: (raw.instructions as string[]) ?? [],
     displayOrder: (raw.displayOrder as number) ?? 0,
     isActive: raw.isActive !== false,
+    advancePaymentRequired: raw.advancePaymentRequired === true,
+    advancePaymentPercent:
+      typeof raw.advancePaymentPercent === 'number'
+        ? raw.advancePaymentPercent
+        : 0,
     createdAt: raw.createdAt?.toISOString?.(),
     updatedAt: raw.updatedAt?.toISOString?.(),
   };
 }
 
+/**
+ * Enforce the advance-payment invariant at the SERVICE layer.
+ *
+ * The HTTP routes already validate this through the Zod schema
+ * (`createPaymentMethodSchema` / `updatePaymentMethodSchema`), but the
+ * service is reachable from other places too — a seed script, an admin
+ * job, a future internal caller. A single unguarded write path would
+ * let a method end up configured as "advance required, 0%", which
+ * contradicts itself: the admin's toggle says money is due up front
+ * while the percentage says nothing is.
+ *
+ * Failing loudly at the service boundary means the invalid state can
+ * never be persisted, however the write was attempted.
+ */
+function assertValidAdvanceConfig(input: {
+  advancePaymentRequired?: boolean;
+  advancePaymentPercent?: number;
+}): void {
+  if (input.advancePaymentRequired !== true) return;
+
+  const percent = Number(input.advancePaymentPercent ?? 0);
+  if (!Number.isFinite(percent) || percent <= 0) {
+    throw ApiError.badRequest(
+      'Advance payment percentage must be greater than 0'
+    );
+  }
+  if (percent > 100) {
+    throw ApiError.badRequest(
+      'Advance payment percentage cannot be greater than 100'
+    );
+  }
+}
+
 export async function createPaymentMethod(
   input: Partial<IPaymentMethod>
 ): Promise<PublicPaymentMethod> {
+  assertValidAdvanceConfig(input);
   // `cod` doesn't need an account — leave the fields empty.
   // Other types get their empty defaults as well so the public shape
   // is consistent.
@@ -92,6 +133,29 @@ export async function updatePaymentMethod(
     input as Record<string, unknown>,
     WRITABLE_PAYMENT_METHOD_KEYS
   );
+
+  /**
+   * The advance invariant is checked against the MERGED result, not just
+   * the incoming fields.
+   *
+   * A partial update can create an invalid state in two ways:
+   *
+   *   - The admin turns the toggle ON but sends no percentage. The
+   *     existing percentage (0) applies, so the method would claim an
+   *     advance is required while demanding none.
+   *   - The admin leaves the toggle ON and sends a percentage of 0.
+   *
+   * Merging first means both are caught, and a partial update that does
+   * not touch the advance fields at all is unaffected.
+   */
+  assertValidAdvanceConfig({
+    advancePaymentRequired:
+      (set.advancePaymentRequired as boolean | undefined) ??
+      existing.advancePaymentRequired,
+    advancePaymentPercent:
+      (set.advancePaymentPercent as number | undefined) ??
+      existing.advancePaymentPercent,
+  });
 
   /* If the QR image is being replaced, fire-and-forget delete the old one. */
   if (input.qrImage && typeof input.qrImage === 'object') {

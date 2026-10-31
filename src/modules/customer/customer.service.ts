@@ -66,6 +66,7 @@ function toListItem(
     phone: (doc.phone as string | null) ?? null,
     email: (doc.email as string | null) ?? null,
     isActive: doc.isActive !== false,
+    isGuest: doc.isGuest === true,
     totalOrders: metrics?.totalOrders ?? 0,
     totalSpent: metrics?.totalSpent ?? 0,
     lastOrderAt: metrics?.lastOrderAt?.toISOString?.() ?? null,
@@ -88,6 +89,7 @@ function toDetail(doc: Record<string, unknown>): CustomerDetail {
     phone: (doc.phone as string | null) ?? null,
     email: (doc.email as string | null) ?? null,
     isActive: doc.isActive !== false,
+    isGuest: doc.isGuest === true,
     addresses,
     totalOrders: 0,
     totalSpent: 0,
@@ -117,7 +119,7 @@ export async function listCustomers(
       .sort(built.sort)
       .skip(built.skip)
       .limit(built.limit)
-      .select('name phone email isActive createdAt')
+      .select('name phone email isActive isGuest createdAt')
       .lean()
       .exec(),
     User.countDocuments(filter).exec(),
@@ -162,10 +164,16 @@ export async function createCustomer(input: {
   }
   try {
     const addresses = input.address ? [{ ...input.address, isDefault: true }] : [];
+    const email = input.email?.trim().toLowerCase();
     const created = await User.create({
       name: input.name,
       phone: input.phone,
-      email: input.email?.toLowerCase() ?? null,
+      // OMIT `email` entirely when it was not supplied — do NOT write
+      // `null`. The users collection has a `unique + sparse` index on
+      // `email`, and a sparse index skips only ABSENT values, not an
+      // explicit `null`. Writing `null` would make the second
+      // email-less customer collide with the first (E11000).
+      ...(email ? { email } : {}),
       role: 'customer',
       addresses,
     });

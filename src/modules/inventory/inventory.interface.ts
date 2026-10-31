@@ -62,7 +62,7 @@ export const INVENTORY_QUERY_CONFIG: QueryConfig = {
   searchFields: ['productName'],
   allowedFilters: {
     product: 'objectId',
-    bottleSize: 'enum:3ml,5ml,10ml,30ml',
+    bottleSize: 'enum:3ml,5ml,10ml,15ml,30ml',
   },
   defaultSort: '-createdAt',
   maxLimit: 100,
