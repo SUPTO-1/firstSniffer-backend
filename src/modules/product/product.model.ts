@@ -28,9 +28,18 @@ const ProductVariantSchema = new Schema(
     size: {
       type: String,
       required: true,
-      enum: ['3ml', '5ml', '10ml', '30ml'],
+      enum: ['3ml', '5ml', '10ml', '15ml', '30ml'],
     },
     price: { type: Number, required: true, min: 0 },
+    /**
+     * Admin toggle for a selling size. A disabled variant is hidden from the
+     * storefront and rejected by the order pipeline, but its price history is
+     * preserved — unlike deleting the variant entirely.
+     *
+     * Defaults to `true`, so every existing row keeps selling without a
+     * data migration.
+     */
+    isActive: { type: Boolean, default: true },
   },
   { _id: false }
 );
@@ -122,6 +131,22 @@ const ProductSchema = new Schema<ProductDoc>(
     },
     defaultAtomizer: { type: ObjectId, ref: 'Atomizer' },
     aliases: { type: [String], default: [] },
+
+    /* ---------- Product-level inventory settings ----------
+     *
+     * The physical stock lives in `InventoryBatch` rows (one per purchase).
+     * These two numbers are properties of the PRODUCT's sellable position,
+     * not of any particular purchase, so they live here rather than on the
+     * batch.
+     *
+     * `safetyBufferMl` is a seller-owned margin that is held back from sale.
+     * It is genuinely enforced: sellable = Σ batch.remainingMl − safetyBufferMl.
+     * It is NOT an order reservation — reserved stock is tracked separately
+     * (see the order pipeline's `availableMl` reporting).
+     */
+    safetyBufferMl: { type: Number, default: 0, min: 0 },
+    lowStockThresholdMl: { type: Number, default: 30, min: 0 },
+
     averageRating: { type: Number, default: 0, min: 0, max: 5 },
     reviewCount: { type: Number, default: 0, min: 0 },
     featured: { type: Boolean, default: false, index: true },
@@ -201,25 +226,38 @@ ProductSchema.index({ isActive: 1, deletedAt: 1, createdAt: -1 });
 ProductSchema.index({ brand: 1, isActive: 1, deletedAt: 1 });
 
 // Cascade: when a Product is renamed, the denormalised `productName` on
-// any Inventory rows must follow — otherwise search by product name breaks.
+// any inventory rows must follow — otherwise search by product name breaks.
 // Best-effort, fire-and-forget so a transient Mongo error doesn't block the save.
 const cascadeProductNameUpdate = async (
   doc: ProductDoc | null
 ): Promise<void> => {
   if (!doc) return;
   try {
-    // Inventory module is imported lazily to avoid a circular dependency.
-    // The module is created in Phase 2; until then, the lookup silently no-ops.
-    // Use a runtime require so the build doesn't fail before Inventory exists.
+    // Inventory modules are imported lazily to avoid a circular dependency
+    // (inventory → product → inventory). Use a runtime require so the build
+    // doesn't fail on the import cycle.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const req = eval('require') as NodeRequire;
-    const mod = req('../inventory/inventory.model');
-    const Inventory = mod.Inventory;
-    if (!Inventory) return;
-    await Inventory.updateMany(
-      { product: doc._id },
-      { $set: { productName: doc.name } }
-    );
+
+    const batchMod = req('../inventory/inventoryBatch.model');
+    const InventoryBatch = batchMod.InventoryBatch;
+    if (InventoryBatch) {
+      await InventoryBatch.updateMany(
+        { product: doc._id },
+        { $set: { productName: doc.name } }
+      );
+    }
+
+    // Legacy collection — kept in sync so the archived rows stay searchable
+    // during the migration window.
+    const legacyMod = req('../inventory/inventory.model');
+    const Inventory = legacyMod.Inventory;
+    if (Inventory) {
+      await Inventory.updateMany(
+        { product: doc._id },
+        { $set: { productName: doc.name } }
+      );
+    }
   } catch {
     // Best-effort: the product name update succeeded; an out-of-date snapshot
     // is acceptable until the next inventory edit (which re-syncs).

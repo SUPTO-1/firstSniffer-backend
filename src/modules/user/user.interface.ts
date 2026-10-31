@@ -19,6 +19,17 @@ export interface IUser {
   isGuest: boolean;
   addresses: IAddress[];
   isActive: boolean;
+  /**
+   * Whether the customer has confirmed ownership of their email address.
+   *
+   * `false` → registered but never entered the code. The customer can fix
+   * this themselves, so login says "Please verify your email address
+   * first." `true` + `isActive: false` → an admin disabled the account,
+   * which the customer cannot fix.
+   *
+   * Defaults to `true` so existing accounts are never locked out.
+   */
+  emailVerified: boolean;
   createdAt?: Date;
   updatedAt?: Date;
 }

@@ -20,6 +20,18 @@ export interface IPaymentMethod {
   /** Lower numbers sort first. */
   displayOrder: number;
   isActive: boolean;
+  /**
+   * Whether an advance payment is required for this method.
+   *
+   * Defaults to `false` so existing records never unexpectedly force an
+   * advance.
+   */
+  advancePaymentRequired: boolean;
+  /**
+   * The advance percentage (0 < n ≤ 100). Only meaningful when
+   * `advancePaymentRequired` is `true`.
+   */
+  advancePaymentPercent: number;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -36,6 +48,15 @@ export interface PublicPaymentMethod {
   instructions: string[];
   displayOrder: number;
   isActive: boolean;
+  /**
+   * Whether an advance payment is required for this method. Exposed
+   * publicly so the storefront can render the breakdown — but the
+   * backend ALWAYS recomputes the authoritative amount from the stored
+   * configuration; the client value is display-only.
+   */
+  advancePaymentRequired: boolean;
+  /** The advance percentage (0 < n ≤ 100) when required. */
+  advancePaymentPercent: number;
   createdAt?: string;
   updatedAt?: string;
 }

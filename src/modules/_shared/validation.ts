@@ -34,12 +34,28 @@ export const idParamSchema = z.object({ id: objectId }).strict();
 
 /**
  * Product variant sizes — fixed enum. Used by both the Product schema
- * (variants[].size) and the Inventory schema (bottleSize). Adding/removing
- * a size here is a breaking change that requires a DB migration.
+ * (variants[].size) and the Inventory schema (bottleSize).
+ *
+ * Widening this enum is safe for existing rows: Mongoose validates on write,
+ * not on read, so previously saved sizes keep working. A new size only
+ * becomes usable once the matching Mongoose enum is widened too — see
+ * `product.model.ts`, `inventory.model.ts`, `order.model.ts`, `combo.model.ts`.
  */
-export const productSizeEnum = z.enum(['3ml', '5ml', '10ml', '30ml']);
+export const productSizeEnum = z.enum([
+  '3ml',
+  '5ml',
+  '10ml',
+  '15ml',
+  '30ml',
+]);
 export type ProductSize = z.infer<typeof productSizeEnum>;
-export const PRODUCT_SIZES = ['3ml', '5ml', '10ml', '30ml'] as const;
+export const PRODUCT_SIZES = [
+  '3ml',
+  '5ml',
+  '10ml',
+  '15ml',
+  '30ml',
+] as const;
 
 /** Coerced non-negative integer (used for ml / qty). */
 export const nonNegativeInt = z.coerce.number().int().min(0);
@@ -115,12 +131,49 @@ export const addressLineEnum = z.string().trim().min(1).max(300);
 /** Millilitre quantity for an order line — positive integer, capped. */
 export const mlQty = z.coerce.number().int().positive().max(10_000);
 
-/** A single order line — plain product by (product, size, ml). */
+/** How many bottles of a given size an order line covers. */
+export const bottleQty = z.coerce.number().int().positive().max(999);
+
+/**
+ * Backend-owned map from a selling size to its volume in millilitres.
+ *
+ * The order pipeline derives the millilitres to deduct from the stock pool
+ * as `sizeInMl(size) * quantity`. Keeping this map on the server means the
+ * client can never send a line whose millilitre count contradicts its size
+ * (the old contract accepted `size:'3ml'` with `millilitres:500`).
+ *
+ * This is the MVP selling-size set. Custom sizes (7ml, 12ml…) are NOT
+ * enabled yet; when they are, this map is the single place to extend.
+ */
+export const SIZE_IN_ML: Record<string, number> = {
+  '3ml': 3,
+  '5ml': 5,
+  '10ml': 10,
+  '15ml': 15,
+  '30ml': 30,
+};
+
+/** Millilitres for a selling size. Throws for an unknown size. */
+export function sizeInMl(size: string): number {
+  const ml = SIZE_IN_ML[size];
+  if (ml === undefined) {
+    throw new Error(`Unknown product size: ${size}`);
+  }
+  return ml;
+}
+
+/**
+ * A single order line — plain product by (product, size, quantity).
+ *
+ * `quantity` is the number of bottles. The millilitres are derived
+ * server-side from `size`, so the client cannot request an inconsistent
+ * line.
+ */
 export const orderItemInput = z
   .object({
     product: objectId,
     size: productSizeEnum,
-    millilitres: mlQty,
+    quantity: bottleQty,
   })
   .strict();
 export type OrderItemInput = z.infer<typeof orderItemInput>;

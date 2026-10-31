@@ -87,8 +87,54 @@ All variables live in `.env`. Copy `.env.example` to get started.
 | `JWT_EXPIRES_IN`  | `7d`                                                                     | Token lifetime                           |
 | `COOKIE_NAME`     | `fs_token`                                                               | Auth cookie name                         |
 | `COOKIE_SECURE`   | `false`                                                                  | Set `true` in production (HTTPS only)    |
+| `RESEND_API_KEY`  | _(empty)_                                                                | Resend API key — the only email provider  |
+| `EMAIL_FROM`      | _(empty)_                                                                | Verified sender, e.g. `First Sniffer <x@y>` |
 
 **Never commit `.env`.** It's listed in `.gitignore`.
+
+### Email (Resend)
+
+Email is the **only** customer notification channel — there is no SMS
+integration. All outbound mail goes through the official `resend` SDK via
+the single transport wrapper in `src/modules/email/email.service.ts`.
+
+Two environment variables control it, and they are **optional**: when
+either is missing the service reports `sent: false`, logs a sanitised
+warning, and every business flow continues. A failed email never fails an
+order, never rolls back a stock deduction, and never blocks a
+registration.
+
+| Variable         | Where to get it                          | Notes                                              |
+| ---------------- | ---------------------------------------- | -------------------------------------------------- |
+| `RESEND_API_KEY` | https://resend.com/api-keys              | Secret — never logged, never returned in a response |
+| `EMAIL_FROM`     | Resend → Domains → your verified domain  | e.g. `First Sniffer <orders@yourdomain.com>`        |
+
+**Setting up a sending domain**
+
+1. Create a Resend account and add your domain under **Domains**.
+2. Add the DNS records Resend gives you (usually `MX` plus a `TXT` for
+   SPF and one for DKIM) at your DNS provider.
+3. Wait for Resend to show the domain as **Verified**.
+4. Set `EMAIL_FROM` to an address on that verified domain — for example
+   `First Sniffer <orders@firstsniffer.com>`.
+
+Until the domain is verified, Resend's sandbox sender only delivers to
+the account owner's own address. Nothing else in the system changes: the
+templates, the OTP flow, the resend limiter and the order-confirmation
+email all work against the same sender.
+
+### Customer email flows
+
+| Flow              | Trigger                     | Notes                                                          |
+| ----------------- | --------------------------- | -------------------------------------------------------------- |
+| OTP verification  | `POST /api/auth/register`   | 6-digit code, 5-minute expiry, 5 attempts, bcrypt-hashed        |
+| OTP resend        | `POST /api/auth/resend-otp` | Max 3 resends, then a 30-minute cooldown (`429` + `Retry-After`) |
+| Password reset    | `POST /api/auth/forgot-password` | 15-minute code; identical response for known/unknown emails |
+| Order confirmation | Order creation succeeds     | Skipped for admin-created orders and guests with no email        |
+
+The resend limiter lives entirely in MongoDB — one atomic
+`findOneAndUpdate` per request — so parallel requests cannot bypass it.
+No Redis, BullMQ, or any other queue is involved.
 
 ---
 

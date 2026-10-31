@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { Product } from '../modules/product/product.model';
-import { Inventory } from '../modules/inventory/inventory.model';
+import { InventoryBatch } from '../modules/inventory/inventoryBatch.model';
 import { Brand } from '../modules/brand/brand.model';
 import { Note } from '../modules/note/note.model';
 import { Genre } from '../modules/genre/genre.model';
@@ -173,7 +173,7 @@ export async function seedProducts(
   specs: ProductSpec[]
 ): Promise<Record<string, mongoose.Types.ObjectId>> {
   const ids: Record<string, mongoose.Types.ObjectId> = {};
-  const sizes = ['3ml', '5ml', '10ml', '30ml'] as const;
+  const sizes = ['3ml', '5ml', '10ml', '15ml', '30ml'] as const;
   for (const spec of specs) {
     const prices = spec.prices ?? [1000];
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -191,28 +191,68 @@ export async function seedProducts(
       aliases: spec.aliases ?? [],
       isActive: spec.isActive ?? true,
       images: [{ url: 'https://img.test/p.png', fileId: 'file_p' }],
-      variants: sizes.map((size, i) => ({ size, price: prices[i] ?? prices[prices.length - 1] })),
+      variants: sizes.map((size, i) => ({
+        size,
+        price: prices[i] ?? prices[prices.length - 1],
+        isActive: true,
+      })),
     });
     ids[spec.name] = doc._id;
   }
   return ids;
 }
 
+/**
+ * Seed a purchase batch per product.
+ *
+ * The stock model is batch-based: a product's stock is the sum of its active
+ * batches' `remainingMl`. The buffer and the low-stock threshold live on the
+ * PRODUCT (product-level inventory settings), not on the batch — so the
+ * fixtures set those on the product too.
+ */
 export async function seedInventory(
-  rows: Array<{ product: mongoose.Types.ObjectId; productName: string; remainingMl: number }>
+  rows: Array<{
+    product: mongoose.Types.ObjectId;
+    productName: string;
+    remainingMl: number;
+    /** Capacity of ONE original bottle. Defaults to 100ml. */
+    sourceBottleSizeMl?: number;
+    /** How many original bottles in the batch. Defaults to 1. */
+    quantity?: number;
+    /** Product-level safety buffer. Defaults to 0. */
+    safetyBufferMl?: number;
+    /** Product-level low-stock threshold. Defaults to 30. */
+    lowStockThresholdMl?: number;
+  }>
 ): Promise<void> {
   for (const r of rows) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (Inventory as any).create({
+    const sourceBottleSizeMl = r.sourceBottleSizeMl ?? 100;
+    const quantity = r.quantity ?? 1;
+    const totalMl = sourceBottleSizeMl * quantity;
+
+    await InventoryBatch.create({
       product: r.product,
       productName: r.productName,
-      bottleSize: '10ml',
-      totalMl: 100000,
-      reservedBufferMl: 0,
-      remainingMl: r.remainingMl,
+      sourceBottleSizeMl,
+      quantity,
+      totalMl,
+      remainingMl: Math.min(r.remainingMl, totalMl),
       purchaseCost: 100,
-      lowStockThresholdMl: 1000,
+      purchaseDate: new Date(),
+      supplier: '',
+      notes: '',
+      isActive: true,
     });
+
+    await Product.updateOne(
+      { _id: r.product },
+      {
+        $set: {
+          safetyBufferMl: r.safetyBufferMl ?? 0,
+          lowStockThresholdMl: r.lowStockThresholdMl ?? 30,
+        },
+      }
+    );
   }
 }
 

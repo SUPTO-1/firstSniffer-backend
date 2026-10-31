@@ -31,7 +31,7 @@ export interface ISettings {
   freeShippingThreshold: number;
 
   /* Inventory defaults */
-  defaultReservedBufferMl: number;
+  defaultSafetyBufferMl: number;
   lowStockDefaultMl: number;
 
   /* Orders */
@@ -76,7 +76,7 @@ export type SettingsDoc = ISettings & Document & { _id: unknown };
  * Public-facing shape — used by both admin and storefront. Includes both
  * the nested groups (new in this milestone — `shipping`, `orders`,
  * `homepage`, `inventoryDefaults`) AND flat aliases of the same data
- * (e.g. `insideCtgCharge`, `orderNumberPrefix`, `defaultReservedBufferMl`)
+ * (e.g. `insideCtgCharge`, `orderNumberPrefix`, `defaultSafetyBufferMl`)
  * for backwards compatibility with code that referenced the pre-extension
  * schema.
  */
@@ -108,7 +108,7 @@ export interface PublicSettings {
 
   /* Inventory defaults — nested */
   inventoryDefaults: {
-    defaultReservedBufferMl: number;
+    defaultSafetyBufferMl: number;
     lowStockDefaultMl: number;
   };
 
@@ -164,7 +164,7 @@ export interface PublicSettings {
   insideCtgCharge: number;
   outsideCtgCharge: number;
   freeShippingThreshold: number;
-  defaultReservedBufferMl: number;
+  defaultSafetyBufferMl: number;
   lowStockDefaultMl: number;
   orderNumberPrefix: string;
   invoicePrefix: string;

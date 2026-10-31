@@ -35,6 +35,7 @@ export function toPublicUser(doc: UserDoc | null): PublicUser {
     role: (raw.role as 'admin' | 'customer') ?? 'customer',
     isGuest: !!raw.isGuest,
     isActive: raw.isActive !== false,
+    emailVerified: raw.emailVerified !== false,
     addresses: (raw.addresses as IAddress[]) ?? [],
     createdAt: raw.createdAt,
     updatedAt: raw.updatedAt as Date | undefined,

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authRequired } from '../../middleware/auth';
 import { adminOnly } from '../../middleware/admin';
+import { rateLimiter } from '../../middleware/rateLimiter';
 import { validate } from '../../middleware/validateRequest';
 import * as controller from './order.controller';
 import {
@@ -24,43 +25,95 @@ import { ApiError } from '../../utils/ApiError';
 const router = Router();
 
 /**
- * Guard for the storefront checkout. The order POST is reachable by both
- * admins (manual order entry) and customers (online checkout). Customers
- * may only place orders against their own user id; admins can place orders
- * for any customer (manual entry on the dashboard).
+ * Guard for the storefront checkout.
+ *
+ * The order POST is reachable by THREE kinds of caller:
+ *
+ *  1. **Admins** (manual order entry on the dashboard) — may place an
+ *     order for any customer.
+ *  2. **Signed-in customers** (online checkout) — may only place an order
+ *     against their own user id.
+ *  3. **Guests** (anonymous checkout) — may place an order by supplying
+ *     their own `guestInfo` (name + phone + address). No account is
+ *     required and none is implied.
+ *
+ * A guest order is only accepted when the body carries `guestInfo` and NO
+ * `customer`. The service layer re-checks this, so a client cannot smuggle
+ * a guest order through by omitting the field and expecting a fallback.
  */
-function customerOrAdmin(
+function customerAdminOrGuest(
   req: import('express').Request,
   _res: import('express').Response,
   next: import('express').NextFunction
 ): void {
+  const body = (req.body ?? {}) as {
+    customer?: unknown;
+    guestInfo?: unknown;
+  };
+
+  const hasGuestInfo =
+    !!body.guestInfo && typeof body.guestInfo === 'object' && body.guestInfo !== null;
+  const hasCustomer = typeof body.customer === 'string' && body.customer.length > 0;
+
+  /* --- Case 3: guest checkout (no auth at all) --- */
   if (!req.user) {
+    if (hasGuestInfo && !hasCustomer) {
+      return next();
+    }
+    /* No identity signal at all → the caller simply is not signed in.
+     * If they DID name somebody else's account, that is also a
+     * 401 — an anonymous caller must never place an order against an
+     * arbitrary customer id. */
     return next(ApiError.unauthorized('Authentication required'));
   }
+
+  /* --- Case 1: admin --- */
   if (req.user.role === 'admin') return next();
-  // Storefront customer: must be placing an order for themselves.
-  const bodyCustomer = (req.body as { customer?: unknown })?.customer;
-  if (typeof bodyCustomer !== 'string' || bodyCustomer.length === 0) {
+
+  /* --- Case 2: signed-in customer ordering for themselves --- */
+  if (!hasCustomer) {
     return next(ApiError.badRequest('Customer is required'));
   }
-  if (bodyCustomer !== req.user.id) {
+  if (body.customer !== req.user.id) {
     return next(ApiError.forbidden('You can only place orders for yourself'));
   }
   return next();
 }
 
-// Every route below needs an authenticated user; admin-only routes stack
-// `adminOnly` on top. The order POST is intentionally NOT admin-only so the
-// storefront checkout (signed-in customer placing their own order) works.
-router.use(authRequired);
-
-// Storefront checkout — authenticated customers OR admins.
+/**
+ * Storefront checkout — admins, signed-in customers, and guests.
+ *
+ * This route deliberately sits ABOVE `router.use(authRequired)`: guest
+ * checkout must work without a token. Every other route in this module
+ * still requires authentication.
+ *
+ * RATE LIMITING: because this route is reachable without authentication,
+ * it is capped at 10 order creations per IP per minute. Without it, an
+ * anonymous endpoint that writes to the database and deducts stock is a
+ * spam/abuse vector — a bot could flood the shop with unpaid orders and
+ * lock out real inventory. The limit is generous enough that a genuine
+ * shopper (or a shared NAT office IP) never hits it.
+ *
+ * MIDDLEWARE ORDER: `validate` runs BEFORE `customerAdminOrGuest` on
+ * purpose. The schema owns the "who is this order for?" question — it
+ * rejects a body with NEITHER identity and a body with BOTH. If the guard
+ * ran first, an anonymous caller with no identity would get a flat 401
+ * ("Authentication required") instead of the actionable 400 that tells
+ * them they need to supply guest details. Validation is auth-independent
+ * and touches no data, so running it first leaks nothing: the guard still
+ * has the final say on whether a named `customer` is the caller's own.
+ */
 router.post(
   '/',
-  customerOrAdmin,
+  rateLimiter({ windowMs: 60_000, max: 10 }),
   validate(createOrderSchema),
+  customerAdminOrGuest,
   controller.createOrder
 );
+
+// Every route below needs an authenticated user; admin-only routes stack
+// `adminOnly` on top.
+router.use(authRequired);
 
 // Admin-only — list/calculate/get/update/cancel.
 router.get('/', adminOnly, validate(listOrderQuerySchema, 'query'), controller.listOrders);

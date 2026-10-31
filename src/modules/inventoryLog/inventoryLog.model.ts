@@ -3,12 +3,16 @@ import type { IInventoryLog, InventoryLogDoc } from './inventoryLog.interface';
 
 /**
  * InventoryLog — append-only audit trail for every stock movement. The
- * inventory service writes one of these inside the same atomic flow as the
- * inventory mutation; clients never write directly.
+ * inventory service writes one of these alongside each batch mutation;
+ * clients never write directly.
  *
  * Append-only: no update / delete endpoints exposed. Removing logs would
  * break the audit guarantee, so the only way a log row disappears is a
  * whole-collection purge (admin operation, future).
+ *
+ * The `inventory` field points at an `InventoryBatch` — the log is
+ * BATCH-level, which is what makes a multi-batch order traceable and
+ * exactly reversible.
  */
 
 const ObjectId = mongoose.Schema.Types.ObjectId;
@@ -17,8 +21,8 @@ const InventoryLogSchema = new Schema<InventoryLogDoc>(
   {
     inventory: {
       type: ObjectId,
-      ref: 'Inventory',
-      required: [true, 'Inventory reference is required'],
+      ref: 'InventoryBatch',
+      required: [true, 'Inventory batch reference is required'],
       index: true,
     },
     product: {
@@ -30,7 +34,7 @@ const InventoryLogSchema = new Schema<InventoryLogDoc>(
     type: {
       type: String,
       required: [true, 'Log type is required'],
-      enum: ['add', 'sale', 'bufferRelease', 'adjustment'],
+      enum: ['add', 'sale', 'reversal', 'adjustment', 'restock', 'retire'],
       index: true,
     },
     quantityMl: {

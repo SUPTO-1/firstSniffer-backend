@@ -1,7 +1,7 @@
 import type { Document, Types } from 'mongoose';
 import type { QueryConfig } from '../../utils/queryBuilder';
 
-export type ComboSize = '3ml' | '5ml' | '10ml' | '30ml';
+export type ComboSize = '3ml' | '5ml' | '10ml' | '15ml' | '30ml';
 
 export interface IComboComponent {
   product: Types.ObjectId;

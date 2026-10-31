@@ -11,6 +11,11 @@ import { BD_MOBILE_REGEX, EMAIL_REGEX } from '../user/user.constants';
 
 export const listCustomerQuerySchema = masterListQuerySchema.extend({
   isActive: z.enum(['true', 'false']).optional(),
+  /**
+   * Filter by guest vs. registered customer. `isGuest=true` shows only
+   * shoppers who checked out without an account.
+   */
+  isGuest: z.enum(['true', 'false']).optional(),
 });
 
 export const customerIdParamSchema = idParamSchema;

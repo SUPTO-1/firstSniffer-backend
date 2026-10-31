@@ -20,7 +20,7 @@ const WRITABLE_SETTINGS_KEYS = [
   'insideCtgCharge',
   'outsideCtgCharge',
   'freeShippingThreshold',
-  'defaultReservedBufferMl',
+  'defaultSafetyBufferMl',
   'lowStockDefaultMl',
   'orderNumberPrefix',
   'invoicePrefix',
@@ -63,7 +63,7 @@ export function toPublicSettings(doc: unknown): PublicSettings {
   const insideCtgCharge = (raw.insideCtgCharge as number) ?? 60;
   const outsideCtgCharge = (raw.outsideCtgCharge as number) ?? 120;
   const freeShippingThreshold = (raw.freeShippingThreshold as number) ?? 0;
-  const defaultReservedBufferMl = (raw.defaultReservedBufferMl as number) ?? 0;
+  const defaultSafetyBufferMl = (raw.defaultSafetyBufferMl as number) ?? 0;
   const lowStockDefaultMl = (raw.lowStockDefaultMl as number) ?? 30;
   const orderNumberPrefix = (raw.orderNumberPrefix as string) ?? 'FS';
   const invoicePrefix = (raw.invoicePrefix as string) ?? 'INV';
@@ -125,7 +125,7 @@ export function toPublicSettings(doc: unknown): PublicSettings {
       freeShippingThreshold,
     },
     inventoryDefaults: {
-      defaultReservedBufferMl,
+      defaultSafetyBufferMl,
       lowStockDefaultMl,
     },
     orders: {
@@ -167,7 +167,7 @@ export function toPublicSettings(doc: unknown): PublicSettings {
     insideCtgCharge,
     outsideCtgCharge,
     freeShippingThreshold,
-    defaultReservedBufferMl,
+    defaultSafetyBufferMl,
     lowStockDefaultMl,
     orderNumberPrefix,
     invoicePrefix,

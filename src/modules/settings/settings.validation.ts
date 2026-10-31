@@ -52,7 +52,7 @@ export const updateSettingsSchema = z
     freeShippingThreshold: z.coerce.number().min(0).optional(),
 
     /* Inventory defaults */
-    defaultReservedBufferMl: z.coerce.number().min(0).optional(),
+    defaultSafetyBufferMl: z.coerce.number().min(0).optional(),
     lowStockDefaultMl: z.coerce.number().min(0).optional(),
 
     /* Orders */

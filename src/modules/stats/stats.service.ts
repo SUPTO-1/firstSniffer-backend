@@ -1,12 +1,12 @@
 import type { Request, Response } from 'express';
 import { Product } from '../product/product.model';
-import { Inventory } from '../inventory/inventory.model';
+import { InventoryBatch } from '../inventory/inventoryBatch.model';
 import { InventoryLog } from '../inventoryLog/inventoryLog.model';
 import { Order } from '../order/order.model';
 import { User } from '../user/user.model';
 import { sendResponse } from '../../utils/sendResponse';
 import { asyncHandler } from '../../utils/asyncHandler';
-import { computeStatus } from '../inventory/inventory.service';
+import { computeStockStatus } from '../inventory/inventoryBatch.service';
 import type { PublicOrder } from '../order/order.interface';
 
 export interface DashboardStats {
@@ -15,8 +15,10 @@ export interface DashboardStats {
     active: number;
   };
   inventory: {
-    lowStockBatches: number;
-    outOfStockBatches: number;
+    /** Products whose sellable stock has fallen to/below the low-stock threshold. */
+    lowStockProducts: number;
+    /** Products with no sellable stock left. */
+    outOfStockProducts: number;
     inventoryValueBdt: number;
   };
   recentMovements: {
@@ -38,12 +40,13 @@ export interface DashboardStats {
     newLast30Days: number;
   };
   recentOrders: PublicOrder[];
+  /** Product-level low-stock widgets (one row per product, not per batch). */
   lowStock: Array<{
-    inventoryId: string;
     product: { id: string; name: string; slug: string; image?: { url: string; fileId: string } };
-    bottleSize: string;
     remainingMl: number;
     totalMl: number;
+    sellableMl: number;
+    status: 'in_stock' | 'low_stock' | 'out_of_stock';
   }>;
   topSelling: Array<{
     product: { id: string; name: string; slug: string; image?: { url: string; fileId: string } };
@@ -78,13 +81,12 @@ export const getStats = asyncHandler(async (_req: Request, res: Response) => {
     activeCustomers,
     newLast30Days,
     recentOrdersRaw,
-    lowStockRaw,
     topSellingAgg,
   ] = await Promise.all([
     Product.countDocuments({}).exec(),
     Product.countDocuments({ deletedAt: null, isActive: true }).exec(),
-    Inventory.find({})
-      .select('totalMl remainingMl purchaseCost lowStockThresholdMl')
+    InventoryBatch.find({})
+      .select('product totalMl remainingMl purchaseCost')
       .lean()
       .exec(),
     InventoryLog.countDocuments({
@@ -120,13 +122,6 @@ export const getStats = asyncHandler(async (_req: Request, res: Response) => {
       .lean()
       .exec(),
 
-    Inventory.find({ remainingMl: { $gt: 0 } })
-      .sort({ remainingMl: 1 })
-      .limit(5)
-      .populate('product', 'name slug images')
-      .lean()
-      .exec(),
-
     InventoryLog.aggregate<{
       _id: unknown;
       totalMlSold: number;
@@ -157,23 +152,89 @@ export const getStats = asyncHandler(async (_req: Request, res: Response) => {
     ]),
   ]);
 
-  /* ----- Inventory rollup ----- */
-  let lowStock = 0;
-  let outOfStock = 0;
-  let inventoryValueBdt = 0;
-  for (const row of inventoryRaw as Array<{
+  /* ----- Product-level inventory rollup -----
+   *
+   * Stock is a PRODUCT-level pool: a product has many purchase batches
+   * and every selling size draws from the same millilitres. So the
+   * low/out-of-stock counters and the widget are computed per PRODUCT,
+   * not per batch. The batch rows are only used to aggregate totals and
+   * to value the stock on hand. */
+  const batchRows = inventoryRaw as Array<{
+    product?: unknown;
     totalMl?: number;
     remainingMl?: number;
     purchaseCost?: number;
-    lowStockThresholdMl?: number;
-  }>) {
-    const total = Number(row.totalMl ?? 0);
-    const remaining = Number(row.remainingMl ?? 0);
-    const threshold = Number(row.lowStockThresholdMl ?? 30);
-    inventoryValueBdt += Number(row.purchaseCost ?? 0);
-    const status = computeStatus(remaining, total, threshold);
-    if (status === 'low_stock') lowStock++;
-    if (status === 'out_of_stock') outOfStock++;
+  }>;
+
+  interface ProductRollup {
+    totalMl: number;
+    remainingMl: number;
+    purchaseCost: number;
+  }
+  const rollup = new Map<string, ProductRollup>();
+  for (const row of batchRows) {
+    const id = String(row.product ?? '');
+    if (!id) continue;
+    const current = rollup.get(id) ?? { totalMl: 0, remainingMl: 0, purchaseCost: 0 };
+    current.totalMl += Number(row.totalMl ?? 0);
+    current.remainingMl += Number(row.remainingMl ?? 0);
+    current.purchaseCost += Number(row.purchaseCost ?? 0);
+    rollup.set(id, current);
+  }
+
+  // Product settings that drive the safety buffer + low-stock threshold.
+  const productSettings = await Product.find({ _id: { $in: [...rollup.keys()] } })
+    .select('name slug images safetyBufferMl lowStockThresholdMl')
+    .lean()
+    .exec();
+  const settingsById = new Map(
+    productSettings.map((p) => [
+      String(p._id),
+      p as unknown as {
+        _id: unknown;
+        name?: string;
+        slug?: string;
+        images?: Array<{ url: string; fileId: string }>;
+        safetyBufferMl?: number;
+        lowStockThresholdMl?: number;
+      },
+    ])
+  );
+
+  let lowStockProducts = 0;
+  let outOfStockProducts = 0;
+  let inventoryValueBdt = 0;
+  const lowStockList: DashboardStats['lowStock'] = [];
+
+  for (const [productId, agg] of rollup.entries()) {
+    inventoryValueBdt += agg.purchaseCost;
+    const product = settingsById.get(productId);
+    const safetyBufferMl = Math.max(0, Number(product?.safetyBufferMl ?? 0));
+    const lowStockThresholdMl = Math.max(
+      0,
+      Number(product?.lowStockThresholdMl ?? 30)
+    );
+    const sellableMl = Math.max(0, agg.remainingMl - safetyBufferMl);
+    const status = computeStockStatus(sellableMl, lowStockThresholdMl);
+    if (status === 'low_stock') lowStockProducts++;
+    if (status === 'out_of_stock') outOfStockProducts++;
+
+    if (status !== 'in_stock') {
+      lowStockList.push({
+        product: product
+          ? {
+              id: String(product._id ?? ''),
+              name: String(product.name ?? ''),
+              slug: String(product.slug ?? ''),
+              image: product.images?.[0],
+            }
+          : { id: productId, name: '', slug: '' },
+        remainingMl: agg.remainingMl,
+        totalMl: agg.totalMl,
+        sellableMl,
+        status,
+      });
+    }
   }
 
   /* ----- Map recent orders into the public shape ----- */
@@ -183,28 +244,6 @@ export const getStats = asyncHandler(async (_req: Request, res: Response) => {
       toPublicOrder(r as unknown as Parameters<typeof toPublicOrder>[0])
     )
   );
-
-  /* ----- Low stock widgets ----- */
-  const lowStockList = (lowStockRaw as Array<{
-    _id: unknown;
-    product?: { _id?: unknown; name?: string; slug?: string; images?: Array<{ url: string; fileId: string }> };
-    bottleSize?: string;
-    remainingMl?: number;
-    totalMl?: number;
-  }>).map((row) => ({
-    inventoryId: String(row._id),
-    product: row.product
-      ? {
-          id: String(row.product._id ?? ''),
-          name: String(row.product.name ?? ''),
-          slug: String(row.product.slug ?? ''),
-          image: row.product.images?.[0],
-        }
-      : { id: '', name: '', slug: '' },
-    bottleSize: String(row.bottleSize ?? ''),
-    remainingMl: Number(row.remainingMl ?? 0),
-    totalMl: Number(row.totalMl ?? 0),
-  }));
 
   /* ----- Top selling products ----- */
   const topIds = topSellingAgg.map((r) => String(r._id));
@@ -239,8 +278,8 @@ export const getStats = asyncHandler(async (_req: Request, res: Response) => {
   const data: DashboardStats = {
     products: { total: totalProducts, active: activeProducts },
     inventory: {
-      lowStockBatches: lowStock,
-      outOfStockBatches: outOfStock,
+      lowStockProducts,
+      outOfStockProducts,
       inventoryValueBdt,
     },
     recentMovements: { last7Days: recentMovements },
