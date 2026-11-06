@@ -195,6 +195,16 @@ export interface IOrder {
    * email.
    */
   confirmationEmailSentAt?: Date | null;
+  /**
+   * Why the confirmation email was NOT delivered.
+   *
+   * A failed send RELEASES the `confirmationEmailSentAt` claim and writes
+   * the reason here. Without this the order would be permanently marked as
+   * "email sent" after a single transient failure (a quota exhaustion, a
+   * network blip), and the customer would silently never receive their
+   * confirmation.
+   */
+  confirmationEmailError?: string | null;
   inventoryReversed?: boolean;
   /** Client idempotency key — unique, sparse. */
   idempotencyKey?: string | null;
@@ -288,6 +298,13 @@ export interface PublicOrder {
    * terms the customer actually agreed to.
    */
   paymentSnapshot?: IPaymentSnapshot | null;
+  /**
+   * Whether the confirmation email was delivered, and why not if it
+   * failed. Admin-only — surfaced in the order detail dialog so the
+   * dashboard can show "confirmation email failed" and offer a resend.
+   */
+  confirmationEmailSentAt?: Date | null;
+  confirmationEmailError?: string | null;
   inventoryReversed?: boolean;
   paidAmount: number;
   createdBy: { id: string; name: string };

@@ -3,7 +3,9 @@ import * as service from './order.service';
 import { streamInvoice } from './invoice.service';
 import { sendResponse } from '../../utils/sendResponse';
 import { asyncHandler } from '../../utils/asyncHandler';
+import { ApiError } from '../../utils/ApiError';
 import { sendOrderConfirmationEmail } from '../email/orderConfirmation.service';
+import { resendOrderConfirmationEmail } from '../email/orderConfirmation.service';
 
 export const listOrders = asyncHandler(async (req: Request, res: Response) => {
   const data = await service.listOrders(req.query as Record<string, unknown>);
@@ -70,6 +72,30 @@ export const createOrder = asyncHandler(async (req: Request, res: Response) => {
 
   return sendResponse(res, { statusCode: 201, message: 'Order created', data });
 });
+
+export const resendConfirmation = asyncHandler(
+  async (req: Request, res: Response) => {
+    /**
+     * Admin-triggered resend of the order confirmation email.
+     *
+     * The automatic send releases its claim when the provider rejects the
+     * message, so a failed confirmation can always be retried. This
+     * endpoint exposes that retry to the dashboard.
+     */
+    const result = await resendOrderConfirmationEmail(req.params.id);
+    if (!result.sent && result.reason === 'no-recipient') {
+      throw ApiError.badRequest(
+        'This order has no email address to send a confirmation to'
+      );
+    }
+    return sendResponse(res, {
+      message: result.sent
+        ? 'Confirmation email sent'
+        : 'Confirmation email could not be sent',
+      data: result,
+    });
+  }
+);
 
 export const updateStatus = asyncHandler(async (req: Request, res: Response) => {
   const actorId = (req as unknown as { user?: { id?: string } }).user?.id ?? '';

@@ -273,6 +273,25 @@ const OrderSchema = new Schema<OrderDoc>(
      */
     confirmationEmailSentAt: { type: Date, default: null },
 
+    /**
+     * Why the confirmation email was not delivered.
+     *
+     * THE CLAIM IS RELEASED ON FAILURE.
+     *
+     * Previously the claim (`confirmationEmailSentAt`) was taken before the
+     * send and never given back. That meant a transient provider problem —
+     * a daily-quota exhaustion, a network blip, a template error — left
+     * the order permanently stamped as "email sent" even though nothing
+     * was ever delivered. The customer silently never got their
+     * confirmation and no retry was ever possible.
+     *
+     * Now a failed send CLEARS the claim (see
+     * `orderConfirmation.service.ts`) and records the reason here, so the
+     * order can be retried later and the admin panel can show that a
+     * confirmation is still outstanding.
+     */
+    confirmationEmailError: { type: String, default: null },
+
     /** Set true the first time inventory is reversed for this order. */
     inventoryReversed: { type: Boolean, default: false },
 

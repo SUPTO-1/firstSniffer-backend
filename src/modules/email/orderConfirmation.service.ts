@@ -211,13 +211,16 @@ export async function sendOrderConfirmationEmail(
      * The filter requires `confirmationEmailSentAt` to still be null, so
      * exactly one caller can ever win the claim. Everyone else gets
      * `null` back and skips the send. The claim is taken BEFORE the
-     * email goes out — if the provider then fails, the order keeps its
-     * claim, and the customer is not spammed with retries for an order
-     * they already have.
+     * email goes out so two concurrent triggers cannot both send.
      */
     const claimed = await Order.findOneAndUpdate(
       { _id: order._id, confirmationEmailSentAt: null },
-      { $set: { confirmationEmailSentAt: new Date() } },
+      {
+        $set: {
+          confirmationEmailSentAt: new Date(),
+          confirmationEmailError: null,
+        },
+      },
       { new: true }
     )
       .lean()
@@ -239,6 +242,35 @@ export async function sendOrderConfirmationEmail(
         `[email] Order confirmation for ${order.orderNumber} was not delivered:`,
         result.error ?? 'unknown error'
       );
+      /**
+       * RELEASE THE CLAIM.
+       *
+       * This is the fix for "the OTP email arrives but the order
+       * confirmation never does".
+       *
+       * The claim was taken before the send so that two concurrent
+       * triggers could not both deliver. But keeping the claim after a
+       * FAILED send made it permanent: the order stayed stamped as
+       * "confirmation sent" even though nothing was ever delivered, so
+       * no retry could ever happen and the customer silently received
+       * nothing. A provider-side quota exhaustion, a network blip or a
+       * template error all ended in exactly that dead end.
+       *
+       * Clearing the claim here means the order goes back to "not yet
+       * sent" and can be retried — either by the next trigger or by the
+       * admin's "resend confirmation" action. The failure reason is
+       * recorded on the order so the admin panel can surface it.
+       */
+      await Order.updateOne(
+        { _id: order._id, confirmationEmailSentAt: claimed.confirmationEmailSentAt },
+        {
+          $set: {
+            confirmationEmailSentAt: null,
+            confirmationEmailError: result.error ?? 'Unknown error',
+          },
+        }
+      ).exec();
+
       return { sent: false, reason: 'provider-error', error: result.error };
     }
 
@@ -255,4 +287,27 @@ export async function sendOrderConfirmationEmail(
     );
     return { sent: false, reason: 'provider-error' };
   }
+}
+
+/**
+ * Retry a confirmation email for an order whose send failed (or which
+ * never had one attempted).
+ *
+ * Used by the admin "resend confirmation" action. It shares the same
+ * atomic claim as the automatic send, so an admin retry racing the
+ * automatic path still results in exactly ONE email.
+ */
+export async function resendOrderConfirmationEmail(
+  orderId: string
+): Promise<OrderConfirmationResult> {
+  /**
+   * Clear the previous failure marker so the retry starts from a clean
+   * slate. The claim itself is taken by `sendOrderConfirmationEmail`.
+   */
+  await Order.updateOne(
+    { _id: orderId },
+    { $set: { confirmationEmailError: null } }
+  ).exec();
+
+  return sendOrderConfirmationEmail(orderId);
 }
