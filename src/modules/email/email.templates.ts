@@ -187,6 +187,31 @@ function panel(inner: string, background = BRAND.surface): string {
           </table>`;
 }
 
+/**
+ * Render a numeric code as a row of separate boxes.
+ *
+ * Every digit is a `<td>` inside ONE `<tr>`, so the boxes sit side by
+ * side. (Joining the cells with a row-closing tag instead would break
+ * each digit onto its own line and stack them vertically.)
+ *
+ * The horizontal gap comes from `padding` on each cell rather than
+ * `border-spacing`, because `border-spacing` is unreliable in Outlook
+ * and the table's own `cellpadding` is 0.
+ */
+function codeBoxes(code: string): string {
+  const cells = code
+    .split('')
+    .map(
+      (digit) =>
+        `<td align="center" style="width:44px; height:52px; padding:0 3px; background-color:#FFFFFF; border:1px solid ${BRAND.line}; border-radius:8px; font-family:'Courier New',Courier,monospace; font-size:24px; line-height:28px; font-weight:bold; color:${BRAND.ink};">${escapeHtml(digit)}</td>`
+    )
+    .join('');
+
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;">
+            <tr>${cells}</tr>
+          </table>`;
+}
+
 /* ------------------------------------------------------------------
  *  OTP verification email
  * ------------------------------------------------------------------ */
@@ -215,19 +240,9 @@ export function buildOtpEmail(payload: OtpEmailPayload): {
 } {
   const { name, otp, expiresInMinutes } = payload;
 
-  const codeCells = otp
-    .split('')
-    .map(
-      (digit) =>
-        `<td align="center" style="width:38px; height:48px; background-color:#FFFFFF; border:1px solid ${BRAND.line}; border-radius:8px; font-family:'Courier New',Courier,monospace; font-size:24px; font-weight:bold; color:${BRAND.ink};">${escapeHtml(digit)}</td>`
-    )
-    .join('</tr><tr><td style="height:8px; font-size:0; line-height:0;">&nbsp;</td>');
-
   const body = `${heading(`Verify your email`)}
 ${paragraph(`Hi ${name}, welcome to ${STORE_NAME}. Enter this code to finish creating your account.`)}
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;">
-  <tr>${codeCells}</tr>
-</table>
+${codeBoxes(otp)}
 ${panel(
   `${label('This code expires in')}
    <p style="margin:0; font-family:Arial,Helvetica,sans-serif; font-size:15px; line-height:24px; color:${BRAND.ink};">${escapeHtml(
@@ -547,19 +562,9 @@ export function buildPasswordResetEmail(payload: PasswordResetEmailPayload): {
 } {
   const { name, code, resetUrl, expiresInMinutes } = payload;
 
-  const codeCells = code
-    .split('')
-    .map(
-      (digit) =>
-        `<td align="center" style="width:38px; height:48px; background-color:#FFFFFF; border:1px solid ${BRAND.line}; border-radius:8px; font-family:'Courier New',Courier,monospace; font-size:24px; font-weight:bold; color:${BRAND.ink};">${escapeHtml(digit)}</td>`
-    )
-    .join('</tr><tr><td style="height:8px; font-size:0; line-height:0;">&nbsp;</td>');
-
   const body = `${heading('Reset your password')}
 ${paragraph(`Hi ${name}, we received a request to reset the password on your ${STORE_NAME} account. Enter this code to choose a new one.`)}
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px;">
-  <tr>${codeCells}</tr>
-</table>
+${codeBoxes(code)}
 ${button(resetUrl, 'Reset your password')}
 ${panel(
   `${label('This code expires in')}

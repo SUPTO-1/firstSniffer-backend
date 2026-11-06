@@ -279,7 +279,15 @@ export const listPublicProducts = asyncHandler(
     }
 
     const page = parsePositiveInt(q.page, 1);
-    const limit = parsePositiveInt(q.limit, 12, 60);
+    /**
+     * The per-page cap.
+     *
+     * It used to be 60, but the storefront's server loader asked for 100
+     * and silently got 60 back — the response carried `limit: 60` and the
+     * client never noticed, so the homepage's product rails were truncated
+     * without any error. 100 matches what the storefront actually requests.
+     */
+    const limit = parsePositiveInt(q.limit, 12, 100);
     const skip = (page - 1) * limit;
 
     // Default sort: newest. Flag-based sections use their natural ordering.

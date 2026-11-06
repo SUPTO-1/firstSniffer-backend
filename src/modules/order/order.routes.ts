@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authRequired } from '../../middleware/auth';
+import { authOptional, authRequired } from '../../middleware/auth';
 import { adminOnly } from '../../middleware/admin';
 import { rateLimiter } from '../../middleware/rateLimiter';
 import { validate } from '../../middleware/validateRequest';
@@ -107,6 +107,22 @@ router.post(
   '/',
   rateLimiter({ windowMs: 60_000, max: 10 }),
   validate(createOrderSchema),
+  /**
+   * Populate `req.user` when a valid token is present.
+   *
+   * WITHOUT this, `req.user` was ALWAYS undefined on this route —
+   * `authRequired` is registered further down the file, so it never
+   * ran for the checkout POST. `customerAdminOrGuest` then saw an
+   * anonymous caller on every request and rejected every SIGNED-IN
+   * customer's order with "Authentication required", while guest
+   * checkout (which needs no `customer`) kept working. That is exactly
+   * the asymmetry that was reported.
+   *
+   * `authOptional` (not `authRequired`) is the right tool: the token is
+   * honoured when present and simply ignored when absent, so guest
+   * checkout keeps working exactly as before.
+   */
+  authOptional,
   customerAdminOrGuest,
   controller.createOrder
 );
@@ -179,6 +195,15 @@ router.post(
   validate(orderIdParamSchema, 'params'),
   validate(orderPaymentBodySchema),
   controller.createOrderPayment
+);
+
+// Resend the order confirmation email (admin) — used when the automatic
+// send failed (provider quota, network blip) or was never attempted.
+router.post(
+  '/:id/resend-confirmation',
+  adminOnly,
+  validate(orderIdParamSchema, 'params'),
+  controller.resendConfirmation
 );
 
 // Invoice PDF (admin view — includes payments log)

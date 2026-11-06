@@ -10,6 +10,7 @@ import { createOrder } from '../modules/order/order.service';
 import type { OrderDoc } from '../modules/order/order.interface';
 import {
   buildOrderEmailPayload,
+  resendOrderConfirmationEmail,
   sendOrderConfirmationEmail,
 } from '../modules/email/orderConfirmation.service';
 import {
@@ -335,7 +336,20 @@ describe('An email failure never fails the order', () => {
     expect(result.reason).toBe('provider-error');
   });
 
-  it('marks the order as claimed even when the provider fails', async () => {
+  it('RELEASES the claim when the provider fails so the order can be retried', async () => {
+    /**
+     * THE REGRESSION THIS GUARDS.
+     *
+     * The claim (`confirmationEmailSentAt`) used to be taken before the
+     * send and NEVER given back. A single transient failure — a provider
+     * quota exhaustion, a network blip — therefore left the order
+     * permanently stamped as "email sent" even though nothing was ever
+     * delivered, and no retry was ever possible. The customer silently
+     * never received their confirmation.
+     *
+     * A failed send must now release the claim and record the reason, so
+     * the order returns to "not yet sent" and the admin can retry it.
+     */
     setEmailTransportOverride({ sent: false, error: 'provider is down' });
     const order = await createOrder({
       guestInfo: GUEST_INFO,
@@ -347,7 +361,39 @@ describe('An email failure never fails the order', () => {
 
     await sendOrderConfirmationEmail(order.id);
     const stored = await loadOrder(order.id);
-    expect((stored as { confirmationEmailSentAt?: Date }).confirmationEmailSentAt).toBeTruthy();
+    expect(
+      (stored as { confirmationEmailSentAt?: Date | null }).confirmationEmailSentAt
+    ).toBeNull();
+    expect(
+      (stored as { confirmationEmailError?: string | null }).confirmationEmailError
+    ).toBe('provider is down');
+  });
+
+  it('delivers the confirmation on a retry after a failed send', async () => {
+    setEmailTransportOverride({ sent: false, error: 'provider is down' });
+    const order = await createOrder({
+      guestInfo: GUEST_INFO,
+      orderSource: 'online',
+      items: [{ product: PRODUCT_ID, size: '30ml', quantity: 1 }],
+      shippingAddress: SHIPPING,
+      paymentMethod: METHOD_ID,
+    }, ADMIN_ID);
+
+    const failed = await sendOrderConfirmationEmail(order.id);
+    expect(failed.sent).toBe(false);
+
+    // The provider recovers.
+    setEmailTransportOverride({ sent: true, id: 'retry-id' });
+    const retried = await resendOrderConfirmationEmail(order.id);
+    expect(retried.sent).toBe(true);
+
+    const stored = await loadOrder(order.id);
+    expect(
+      (stored as { confirmationEmailSentAt?: Date | null }).confirmationEmailSentAt
+    ).toBeTruthy();
+    expect(
+      (stored as { confirmationEmailError?: string | null }).confirmationEmailError
+    ).toBeNull();
   });
 });
 

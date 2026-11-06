@@ -213,7 +213,17 @@ function drawInvoice(
     drawTableRow(doc, margin, rowY, contentWidth, [
       name,
       String(item.size),
-      `${item.millilitres}ml`,
+      /**
+       * The Qty column is the NUMBER OF BOTTLES, not the volume.
+       *
+       * `item.quantity` is how many decant units the customer bought
+       * and `item.millilitres` is the TOTAL volume dispensed
+       * (`sizeInMl(size) × quantity`) — a different thing entirely.
+       * Printing the millilitres here made a 3ml bottle bought once
+       * read as "Size 3ml · Qty 3ml", i.e. three bottles, which is
+       * both wrong and identical to the Size column.
+       */
+      String(item.quantity),
       BDT.format(item.unitPrice),
       BDT.format(item.totalPrice),
     ]);
@@ -379,7 +389,22 @@ function drawInvoice(
   }
 
   /* ----- Footer ----- */
-  const footerY = doc.page.height - 60;
+  /**
+   * The footer is anchored to the BOTTOM MARGIN, not to the raw page
+   * height.
+   *
+   * Previously it was placed at `doc.page.height - 60`, which put the
+   * second line BELOW the bottom margin (`page.height - margin` =
+   * 791.89). PDFKit treats text drawn past the bottom margin as an
+   * overflow and silently starts a new page — so every invoice grew a
+   * blank second page.
+   *
+   * `lineBreak: false` keeps each line as a single unbroken line, and
+   * the explicit `y` keeps the two lines from colliding. Together they
+   * guarantee the footer stays on the last page.
+   */
+  const bottomMarginY = doc.page.height - margin;
+  const footerY = bottomMarginY - 26;
   doc
     .font('Helvetica')
     .fontSize(8)
@@ -387,10 +412,12 @@ function drawInvoice(
     .text('Thank you for your purchase.', margin, footerY, {
       width: contentWidth,
       align: 'center',
+      lineBreak: false,
     })
     .text(`Generated ${fmtDateTime(new Date())}`, margin, footerY + 12, {
       width: contentWidth,
       align: 'center',
+      lineBreak: false,
     });
 }
 

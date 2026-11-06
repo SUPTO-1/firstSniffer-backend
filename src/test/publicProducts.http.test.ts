@@ -110,7 +110,17 @@ describe('Test case J — sorting and pagination on the filtered set', () => {
   it('clamps limit and ignores a non-numeric page', async () => {
     const res = await get('/api/public/products?limit=9999&page=abc').expect(200);
     const b = res.body as ListingBody;
-    expect(b.data.limit).toBeLessThanOrEqual(60);
+    /**
+     * The cap is 100.
+     *
+     * It used to be 60, which silently truncated the storefront's
+     * merchandising requests: the frontend asked for 100 items, the server
+     * returned 60, and the response carried `limit: 60` that the client
+     * never checked. The merchandising rails also use the dedicated
+     * `?flag=` endpoints now, so a flagged product outside the first page
+     * is never missed — but the cap still has to allow a full page.
+     */
+    expect(b.data.limit).toBeLessThanOrEqual(100);
     expect(b.data.page).toBe(1);
   });
 });

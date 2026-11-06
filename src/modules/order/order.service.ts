@@ -215,6 +215,13 @@ export async function toPublicOrder(doc: OrderDoc | null): Promise<PublicOrder> 
       : null,
     inventoryReversed: doc.inventoryReversed,
     /**
+     * Confirmation-email delivery state. The admin panel uses this to
+     * show whether the customer actually received their confirmation and
+     * to offer a resend when the send failed.
+     */
+    confirmationEmailSentAt: doc.confirmationEmailSentAt ?? null,
+    confirmationEmailError: doc.confirmationEmailError ?? null,
+    /**
      * The authenticated actor that created the order. A guest order has
      * NO actor — we report it as such rather than borrowing an admin id,
      * which would misrepresent who placed the order.
@@ -445,6 +452,34 @@ export async function calculateOrder(input: CalculateInput): Promise<CalculateOu
       comboComponentProductIds.length > 0
         ? await getProductStockForProducts(comboComponentProductIds)
         : new Map();
+
+    /**
+     * The component products THEMSELVES.
+     *
+     * `productById` above only holds the products that were bought as
+     * standalone cart lines. A bundle's components are usually NOT in the
+     * cart as separate lines — the customer buys the bundle INSTEAD of the
+     * individual bottles. So the variant lookup for a component used to
+     * fall through to `undefined`, which marked the whole bundle as
+     * out-of-stock even when every component was perfectly sellable.
+     *
+     * The bundle's components are loaded here so the sellability check
+     * below sees the real product and its real variant.
+     */
+    const missingComponentIds = comboComponentProductIds.filter(
+      (id) => !productById.has(id)
+    );
+    if (missingComponentIds.length > 0) {
+      const componentProducts = await Product.find({
+        _id: { $in: missingComponentIds },
+      })
+        .select('name slug images variants')
+        .lean()
+        .exec();
+      for (const p of componentProducts) {
+        productById.set(String(p._id), p);
+      }
+    }
 
     for (const cl of input.combos) {
       const combo = comboById.get(cl.combo);
