@@ -72,6 +72,10 @@ const SettingsSchema = new Schema<ISettings>(
     // (campaign, seasonal offer, new positioning) without a redeploy. The
     // defaults below are the art-directed launch copy — leaving the CMS
     // fields empty is never a valid state.
+    //
+    // The launch copy is deliberately minimal: a single eyebrow, a short
+    // headline, one supporting line and one CTA. The hero is a campaign
+    // plate, so extra paragraphs would fight the photograph.
     heroEyebrow: {
       type: String,
       default: 'Authentic Luxury Decants',
@@ -80,20 +84,19 @@ const SettingsSchema = new Schema<ISettings>(
     },
     heroHeadline: {
       type: String,
-      default: 'The Art of Scent, Decanted.',
+      default: 'The Art of Scent.',
       trim: true,
       maxlength: 120,
     },
     heroSubheadline: {
       type: String,
-      default:
-        'Experience the world’s finest fragrances in considered sizes. Authentic decants, meticulously sourced and beautifully presented.',
+      default: 'Discover fragrances worth remembering.',
       trim: true,
       maxlength: 400,
     },
     heroCtaLabel: {
       type: String,
-      default: 'Shop the Collection',
+      default: 'Explore Collection',
       trim: true,
       maxlength: 40,
     },
