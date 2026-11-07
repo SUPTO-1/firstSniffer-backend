@@ -81,12 +81,12 @@ export function toPublicSettings(doc: unknown): PublicSettings {
   const heroEyebrow =
     (raw.heroEyebrow as string)?.trim() || 'Authentic Luxury Decants';
   const heroHeadline =
-    (raw.heroHeadline as string)?.trim() || 'The Art of Scent, Decanted.';
+    (raw.heroHeadline as string)?.trim() || 'The Art of Scent.';
   const heroSubheadline =
     (raw.heroSubheadline as string)?.trim() ||
-    'Experience the world’s finest fragrances in considered sizes. Authentic decants, meticulously sourced and beautifully presented.';
+    'Discover fragrances worth remembering.';
   const heroCtaLabel =
-    (raw.heroCtaLabel as string)?.trim() || 'Shop the Collection';
+    (raw.heroCtaLabel as string)?.trim() || 'Explore Collection';
   const heroCtaHref = (raw.heroCtaHref as string)?.trim() || '/';
   const heroPriceLabel =
     (raw.heroPriceLabel as string)?.trim() || 'Decants from';
